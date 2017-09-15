@@ -8,7 +8,7 @@ from solver_tools import *
 
 
 def solve_it(input_data):
-    solver = GreedyMaxKSSolver()
+    solver = GreedyMaxValueKSSolver()
     return solve_and_serialize(input_data, solver)
 
 

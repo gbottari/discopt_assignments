@@ -35,7 +35,7 @@ class KSSolution(Solution):
 
 
 class KSSolver(Solver):
-    def _parse(self, raw_input_data):
+    def _parse(self, raw_input_data: str) -> KSProblem:
         lines = raw_input_data.split('\n')
         first_line = lines[0].split()
         item_count = int(first_line[0])
@@ -49,12 +49,12 @@ class KSSolver(Solver):
 
         return KSProblem(capacity=capacity, items=items)
 
-    def _solve(self, input_data):
+    def _solve(self, input_data: KSProblem) -> KSSolution:
         raise NotImplementedError()
 
 
 class FifoKSSolver(KSSolver):
-    def _solve(self, input_data: KSProblem):
+    def _solve(self, input_data):
         capacity = 0
         solution = KSSolution(input_data)
         for item in input_data.items:
@@ -67,7 +67,7 @@ class FifoKSSolver(KSSolver):
         return solution
 
 
-class GreedyMaxKSSolver(KSSolver):
+class GreedyMaxValueKSSolver(KSSolver):
     def _solve(self, input_data):
         capacity = 0
         solution = KSSolution(input_data)
@@ -80,3 +80,16 @@ class GreedyMaxKSSolver(KSSolver):
 
         return solution
 
+
+class GreedyMinWeightKSSolver(KSSolver):
+    def _solve(self, input_data):
+        capacity = 0
+        solution = KSSolution(input_data)
+        for item in sorted(input_data.items, key=lambda item: item.weight):
+            if capacity + item.weight <= input_data.capacity:
+                capacity += item.weight
+                solution.add_item(item)
+                if capacity == input_data.capacity:
+                    break
+
+        return solution

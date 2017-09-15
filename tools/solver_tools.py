@@ -16,7 +16,7 @@ class Solver:
     def _solve(self, input_data) -> Solution:
         raise NotImplementedError()
 
-    def solve(self, raw_input_data: str) -> Solution:
+    def solve(self, raw_input_data: str):
         return self._solve(self._parse(raw_input_data))
 
 
