@@ -15,7 +15,7 @@ class KSSolution(Solution):
         self.selected_items = set()
         self.is_optimal = False
 
-    def _get_total_value(self):
+    def get_value(self):
         return sum(item.value for item in self.selected_items)
 
     def add_item(self, item: KSItem):
@@ -26,7 +26,7 @@ class KSSolution(Solution):
         return all(item in self.problem.items for item in self.selected_items)
 
     def serialize(self):
-        result = '{} {}'.format(self._get_total_value(), int(self.is_optimal))
+        result = '{} {}'.format(self.get_value(), int(self.is_optimal))
         x = [0] * len(self.problem.items)
         for item in self.selected_items:
             x[item.index] = 1
@@ -86,6 +86,20 @@ class GreedyMinWeightKSSolver(KSSolver):
         capacity = 0
         solution = KSSolution(input_data)
         for item in sorted(input_data.items, key=lambda item: item.weight):
+            if capacity + item.weight <= input_data.capacity:
+                capacity += item.weight
+                solution.add_item(item)
+                if capacity == input_data.capacity:
+                    break
+
+        return solution
+
+
+class GreedyMaxDensityKSSolver(KSSolver):
+    def _solve(self, input_data):
+        capacity = 0
+        solution = KSSolution(input_data)
+        for item in sorted(input_data.items, key=lambda item: item.value / item.weight, reverse=True):
             if capacity + item.weight <= input_data.capacity:
                 capacity += item.weight
                 solution.add_item(item)

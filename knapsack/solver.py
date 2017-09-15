@@ -3,13 +3,14 @@
 import sys
 sys.path.append('..')
 
-from tools.solver_tools import solve_and_serialize
+from tools.solver_tools import SolverManager, MultiSolver
 from solver_tools import *
 
 
 def solve_it(input_data):
-    solver = GreedyMaxValueKSSolver()
-    return solve_and_serialize(input_data, solver)
+    solver = MultiSolver([GreedyMaxDensityKSSolver(), GreedyMaxValueKSSolver(), GreedyMinWeightKSSolver()])
+    manager = SolverManager()
+    return manager.solve(input_data, solver)
 
 
 if __name__ == '__main__':

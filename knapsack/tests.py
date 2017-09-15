@@ -1,5 +1,6 @@
 import unittest
 from solver_tools import *
+from tools.solver_tools import MultiSolver
 
 raw_simple_input_problem = """\
 3 10
@@ -43,6 +44,18 @@ class TestSolver(unittest.TestCase):
 
     def test_solve_greedy_min_weight(self):
         solver = GreedyMinWeightKSSolver()
+        solution = solver.solve(raw_simple_input_problem)
+        self._check_solution(solution)
+        self.assertFalse(solution.is_optimal)
+
+    def test_solve_greedy_max_density(self):
+        solver = GreedyMaxDensityKSSolver()
+        solution = solver.solve(raw_simple_input_problem)
+        self._check_solution(solution)
+        self.assertFalse(solution.is_optimal)
+
+    def test_multi_solver(self):
+        solver = MultiSolver([GreedyMaxValueKSSolver(), GreedyMinWeightKSSolver()])
         solution = solver.solve(raw_simple_input_problem)
         self._check_solution(solution)
         self.assertFalse(solution.is_optimal)
