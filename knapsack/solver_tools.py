@@ -63,6 +63,20 @@ class FifoKSSolver(KSSolver):
                 solution.add_item(item)
                 if capacity == input_data.capacity:
                     break
-                    
+
+        return solution
+
+
+class GreedyMaxKSSolver(KSSolver):
+    def _solve(self, input_data):
+        capacity = 0
+        solution = KSSolution(input_data)
+        for item in sorted(input_data.items, key=lambda item: item.value, reverse=True):
+            if capacity + item.weight <= input_data.capacity:
+                capacity += item.weight
+                solution.add_item(item)
+                if capacity == input_data.capacity:
+                    break
+
         return solution
 

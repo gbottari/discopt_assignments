@@ -1,13 +1,15 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
+import sys
+sys.path.append('..')
 
-from solver_tools import FifoKSSolver
+from tools.solver_tools import solve_and_serialize
+from solver_tools import *
 
 
 def solve_it(input_data):
-    solver = FifoKSSolver()
-    solution = solver.solve(input_data)
-    return solution.serialize()
+    solver = GreedyMaxKSSolver()
+    return solve_and_serialize(input_data, solver)
 
 
 if __name__ == '__main__':
