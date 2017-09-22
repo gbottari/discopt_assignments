@@ -1,3 +1,4 @@
+import logging
 import sys
 sys.path.append('..')
 
@@ -13,7 +14,7 @@ class KSSolution(Solution):
     def __init__(self, problem):
         self.problem = problem
         self.selected_items = set()
-        self.is_optimal = False
+        self.optimal = False
 
     def get_value(self):
         return sum(item.value for item in self.selected_items)
@@ -25,8 +26,11 @@ class KSSolution(Solution):
         # Check that we have problem items
         return all(item in self.problem.items for item in self.selected_items)
 
+    def is_optimal(self):
+        return self.optimal
+
     def serialize(self):
-        result = '{} {}'.format(self.get_value(), int(self.is_optimal))
+        result = '{} {}'.format(self.get_value(), int(self.is_optimal()))
         x = [0] * len(self.problem.items)
         for item in self.selected_items:
             x[item.index] = 1
@@ -107,3 +111,36 @@ class GreedyMaxDensityKSSolver(KSSolver):
                     break
 
         return solution
+
+
+class PDKSSolver(KSSolver):
+    MAX_SPACE_GB = 2
+
+    def _solve(self, input_data: KSProblem):
+        solution = KSSolution(input_data)
+        solution.optimal = True
+
+        table_size_in_gb = (input_data.capacity + 1) * (len(input_data.items) + 1) * 4 / (2 ** 30)
+        if table_size_in_gb > self.MAX_SPACE_GB:
+            raise Exception('This solution would require {:.1f} GB of space when the maximum is {} GB.'.format(
+                table_size_in_gb, self.MAX_SPACE_GB))
+
+        logging.getLogger('solver').debug('Table size: {:.1f} GB.'.format(table_size_in_gb))
+        table = [[0] * (input_data.capacity + 1) for _ in range(len(input_data.items) + 1)]
+
+        # Fill the table
+        for i in range(1, len(input_data.items) + 1):
+            item = input_data.items[i - 1]
+            for w in range(1, input_data.capacity + 1):
+                table[i][w] = max(table[i - 1][w], (item.value + table[i - 1][w - item.weight]) if item.weight <= w else 0)
+
+        # Find the solution
+        w = input_data.capacity
+        for i in range(len(input_data.items), 0, -1):
+            if table[i][w] > table[i - 1][w]:
+                item = input_data.items[i - 1]
+                solution.add_item(item)
+                w -= item.weight
+
+        return solution
+

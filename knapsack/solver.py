@@ -8,7 +8,8 @@ from solver_tools import *
 
 
 def solve_it(input_data):
-    solver = MultiSolver([GreedyMaxDensityKSSolver(), GreedyMaxValueKSSolver(), GreedyMinWeightKSSolver()])
+    solver = MultiSolver([PDKSSolver(), GreedyMaxDensityKSSolver(), GreedyMaxValueKSSolver(),
+                          GreedyMinWeightKSSolver()])
     manager = SolverManager()
     return manager.solve(input_data, solver)
 

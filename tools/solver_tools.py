@@ -40,6 +40,9 @@ class Solution:
     def get_value(self):
         raise NotImplementedError()
 
+    def is_optimal(self) -> bool:
+        return False
+
 
 class Solver:
     def __repr__(self):
@@ -68,11 +71,23 @@ class MultiSolver(Solver):
 
     def solve(self, raw_input_data: str):
         input_data = self._parse(raw_input_data)
-        best_solution = self.solvers[0]._solve(input_data)
-        for solver in self.solvers[1:]:
-            solution = solver._solve(input_data)
-            if solution.get_value() > best_solution.get_value():
+        best_solution = None
+        last_exception = None
+        for solver in self.solvers:
+            try:
+                solution = solver._solve(input_data)
+            except Exception as ex:
+                logging.getLogger('solver').exception('{} encoutered an exception with {}: '.format(self, solver))
+                last_exception = ex
+                continue
+
+            if best_solution is None or solution.get_value() >= best_solution.get_value():
                 best_solution = solution
+                if best_solution.is_optimal():
+                    break
+
+        if best_solution is None and last_exception is not None:
+            raise last_exception
         return best_solution
 
 
