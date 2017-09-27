@@ -2,7 +2,8 @@ import sys
 sys.path.append('..')
 
 import logging
-from ortools.constraint_solver import pywrapcp
+import pymzn
+#from ortools.constraint_solver import pywrapcp  # todo: remove this
 from collections import namedtuple
 from tools.solver_tools import Solution, Solver
 from typing import List
@@ -37,6 +38,12 @@ class SCSolution(Solution):
     def is_optimal(self):
         return self.optimal
 
+    def copy(self):
+        sol = SCSolution(self.problem)
+        sol.selections = self.selections.copy()
+        sol.optimal = self.optimal
+        return sol
+
 
 class SCSolver(Solver):
     def _parse(self, raw_input_data: str) -> SCProblem:
@@ -59,39 +66,68 @@ class SCSolver(Solver):
         raise NotImplementedError()
 
 
+# class OrToolsCPSCSolver(SCSolver):
+#     def _solve(self, problem: SCProblem):
+#         logger = logging.getLogger('solver')
+#
+#         solver: pywrapcp.Solver = pywrapcp.Solver("set_cover")
+#         set_count = len(problem.sets)
+#         item_count = len(problem.items)
+#
+#         # Decision vars for selecting the set i
+#         x = [solver.IntVar(0, 1, "x_{:02d}".format(i)) for i in range(set_count)]
+#         c = [solver.IntConst(problem.sets[i].cost, "c_{:02d}".format(i)) for i in range(set_count)]
+#
+#         # Minimizes the cost of the sum of the selected sets.
+#         solver.Minimize(solver.Sum([x[i] * c[i] for i in range(set_count)]), step=1)
+#
+#         # Each item must be covered by at least one of the sets specified
+#         covered_by = [[] for _ in range(item_count)]
+#         for i in range(set_count):
+#             for item in problem.sets[i].items:
+#                 covered_by[item].append(x[i])
+#
+#         for i in range(item_count):
+#             solver.Add(solver.Max(covered_by[i]) == 1)
+#
+#         # Dumb search:
+#         db = solver.Phase(x, solver.CHOOSE_FIRST_UNBOUND, solver.ASSIGN_MIN_VALUE)
+#
+#         solution = SCSolution(problem=problem)
+#         solution.optimal = False
+#         # best_solution: SCSolution = None
+#
+#         # solver.NewSearch(db)
+#         # while solver.NextSolution():
+#         #     solution.selections = [x[i].Value() for i in range(set_count)]
+#         #     if not best_solution or best_solution.get_value() > solution.get_value():
+#         #         best_solution = solution.copy()
+#         # solver.EndSearch()
+#
+#         #assignment = solver.Assignment()
+#         collector: pywrapcp.SolutionCollector = solver.BestValueSolutionCollector(False)
+#         solver.Solve(db, [collector])
+#         print(collector.Solution(0))
+#
+#         return solution
+
+
 class CPSCSolver(SCSolver):
     def _solve(self, problem: SCProblem):
-        logger = logging.getLogger('solver')
-
-        solver = pywrapcp.Solver("set_cover")
         set_count = len(problem.sets)
         item_count = len(problem.items)
 
-        # Decision vars for selecting the set i
-        x = [solver.IntVar(0, 1, "x_{:02d}".format(i)) for i in range(set_count)]
-        c = [solver.IntConst(problem.sets[i].cost, "c_{:02d}".format(i)) for i in range(set_count)]
-
-        # Minimizes the cost of the sum of the selected sets.
-        solver.Minimize(solver.Sum([x[i] * c[i] for i in range(set_count)]), 1)
-
         # Each item must be covered by at least one of the sets specified
-        covered_by = [[] for _ in range(item_count)]
+        covered_by = [set() for _ in range(item_count)]
         for i in range(set_count):
             for item in problem.sets[i].items:
-                covered_by[item].append(x[i])
+                covered_by[item].add(i + 1)
 
-        for i in range(item_count):
-            solver.Add(solver.Max(covered_by[i]) == 1)
+        costs = [s.cost for s in problem.sets]
 
-        # Dumb search:
-        db = solver.Phase(x, solver.CHOOSE_FIRST_UNBOUND, solver.ASSIGN_MIN_VALUE)
-
+        data = dict(nsets=set_count, nitems=item_count, covered_by=covered_by, costs=costs)
+        sol_stream: pymzn.SolnStream = pymzn.minizinc('setcover.mzn', data=data, parallel=8)
         solution = SCSolution(problem=problem)
-        solution.optimal = True
-
-        solver.NewSearch(db)
-        if not solver.NextSolution():
-            raise Exception("No solution found!")
-        solution.selections = [x[i].Value() for i in range(set_count)]
-        solver.EndSearch()
+        solution.selections = [int(x) for x in sol_stream._solns[0]['x']]
+        solution.optimal = sol_stream.complete
         return solution

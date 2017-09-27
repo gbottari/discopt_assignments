@@ -54,9 +54,13 @@ dependencies:
 - wincertstore=0.2=py36_0
 - zlib=1.2.11=vc14_0
 - pip:
+  - appdirs==1.4.3
   - ipython-genutils==0.2.0
   - jupyter-client==5.1.0
   - jupyter-console==5.2.0
   - jupyter-core==4.3.0
   - prompt-toolkit==1.0.15
-prefix: D:\Users\Giulio\Miniconda3\envs\discopt
+  - protobuf==3.2.0
+  - pymzn==0.14.8
+  - pyyaml==3.12
+prefix: D:\Users\gbottari\code\conda\discopt

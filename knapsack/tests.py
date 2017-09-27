@@ -88,7 +88,6 @@ class TestSolver(unittest.TestCase):
         self.assertTrue(solution.is_optimal())
         self.assertEqual(solution.get_value(), 8)
 
-    @unittest.skip('')
     def test_pd_solver_must_be_the_best(self):
         solver = PDKSSolver()
         with open(problem_files[0]) as f:
@@ -106,7 +105,6 @@ class TestSolver(unittest.TestCase):
             raw_input = f.read()
         best_solution = solver.solve(raw_input)
         self.assertEqual(best_solution.get_value(), 44)
-
 
 if __name__ == '__main__':
     unittest.main()
