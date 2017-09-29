@@ -9,7 +9,7 @@ from tools.solver_tools import MultiSolver, SolverManager
 
 def solve_it(input_data):
     # Modify this code to run your optimization algorithm
-    solver = MultiSolver(timeout=10 * 60, solvers=[TrivialGCSolver()])
+    solver = MultiSolver(timeout=10 * 60, solvers=[GreedyChangeUntilSatisfy(), TrivialGCSolver()])
     mgr = SolverManager()
     return mgr.solve(input_data, solver)
 

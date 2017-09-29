@@ -17,16 +17,9 @@ class GCSolution(Solution):
         self.node_colors: List[int] = []
 
     def is_feasible(self):
-        # Check it two adjacent vertices share the same color
-        for sorted_nodes in self.problem.sorted_edges:
-            SN = len(sorted_nodes)
-            for j in range(SN - 1):
-                sn_j = sorted_nodes[j] - 1
-                node_color = self.node_colors[sn_j]
-                for k in range(j + 1, SN):
-                    sn_k = sorted_nodes[k] - 1
-                    if self.node_colors[sn_k] == node_color:
-                        return False
+        for n1, n2 in self.problem.input_edges:
+            if self.node_colors[n1] == self.node_colors[n2]:
+                return False
         return True
 
     def is_better(self, other: 'GCSolution'):
@@ -39,7 +32,7 @@ class GCSolution(Solution):
         return '{} {}\n{}\n'.format(self.get_value(), int(self.optimal), ' '.join(str(c) for c in self.node_colors))
 
     def get_value(self):
-        return max(self.node_colors)
+        return max(self.node_colors) + 1
 
     def is_optimal(self):
         return self.optimal
@@ -85,3 +78,28 @@ class TrivialGCSolver(GCSolver):
         solution = GCSolution(problem)
         solution.node_colors = list(range(len(problem.nodes)))
         return solution
+
+
+class GreedyChangeUntilSatisfy(GCSolver):
+    """
+    Assign different colors until the solution is feasible.
+    """
+    def _solve(self, problem: GCProblem):
+        solution = GCSolution(problem)
+        solution.node_colors = [0] * len(problem.nodes)
+
+        last_color = 0
+        stop = False
+
+        while not stop:
+            stop = True
+            for n1, n2 in problem.input_edges:
+                c1 = solution.node_colors[n1]
+                c2 = solution.node_colors[n2]
+                if c1 == c2:
+                    stop = False
+                    last_color += 1
+                    solution.node_colors[n2] = last_color
+
+        return solution
+
