@@ -3,12 +3,15 @@ int: nitems;
 
 set of int: SETS = 1..nsets;
 set of int: ITEMS = 1..nitems;
+set of float: COSTS;
 
 array[SETS] of var bool: x;               % set choices
-array[SETS] of float: costs;              % set costs
+array[SETS] of COSTS: costs;              % set costs
 array[ITEMS] of set of SETS: covered_by;  % items covered by
 
 % example problem instance
+
+% COSTS = {1.0};
 
 % nsets = 6;
 % nitems = 9;
@@ -36,6 +39,7 @@ array[ITEMS] of set of SETS: covered_by;  % items covered by
 % {1, 2, 7, 8}
 % ];
 
+
 % Every item must be covered by at least one set
 constraint forall(i in ITEMS)(exists([j in covered_by[i] | j in SETS where x[j]]));
 
@@ -43,5 +47,10 @@ constraint forall(i in ITEMS)(exists([j in covered_by[i] | j in SETS where x[j]]
 constraint forall(i in ITEMS)(if length(covered_by[i]) = 1 then x[i] = true else true endif);
 
 % Minimize the cost of the chosen sets
-solve :: int_search(x, first_fail, indomain_min, complete)
-  minimize sum(i in SETS)(costs[i] * x[i]);
+solve :: seq_search([
+  int_search(x, first_fail, indomain_random, complete),
+])
+minimize sum(i in SETS)(costs[i] * x[i]);
+  
+  
+  

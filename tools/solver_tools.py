@@ -1,4 +1,6 @@
 import os
+import multiprocessing
+from multiprocessing.pool import ThreadPool
 import logging
 import logging.handlers
 from typing import List
@@ -40,6 +42,9 @@ class Solution:
     def get_value(self):
         raise NotImplementedError()
 
+    def is_better(self, other: 'Solution') -> bool:
+        raise NotImplementedError()
+
     def is_optimal(self) -> bool:
         return False
 
@@ -57,10 +62,17 @@ class Solver:
     def solve(self, raw_input_data: str):
         return self._solve(self._parse(raw_input_data))
 
+    def cleanup(self):
+        pass
+
+    def set_timeout(self, timeout: int):
+        pass
+
 
 class MultiSolver(Solver):
-    def __init__(self, solvers: List[Solver]):
+    def __init__(self, solvers: List[Solver], timeout: int = 60):
         self.solvers = solvers
+        self.timeout = timeout
         assert(len(self.solvers) > 0)
 
     def __repr__(self):
@@ -69,25 +81,57 @@ class MultiSolver(Solver):
     def _parse(self, raw_input_data: str):
         return self.solvers[0]._parse(raw_input_data)
 
-    def solve(self, raw_input_data: str):
-        input_data = self._parse(raw_input_data)
+    def _run_limited_time(self, func, args, kwargs):
+        """Runs a function with time limit
+
+        :param func: The function to run
+        :param args: The functions args, given as tuple
+        :param kwargs: The functions keywords, given as dict
+        :param time: The time limit in seconds
+        :return: True if the function ended successfully. False if it was terminated.
+        """
+        with ThreadPool(processes=1) as pool:
+            async_result = pool.apply_async(func, args=args, kwds=kwargs)
+            return async_result.get(timeout=self.timeout)
+
+    def _solve(self, input_data):
+        logger = logging.getLogger('solver')
         best_solution = None
+        best_solver = None
         last_exception = None
+
         for solver in self.solvers:
+            solver.set_timeout(timeout=self.timeout)
+            skip = False
+
             try:
-                solution = solver._solve(input_data)
+                solution = self._run_limited_time(func=solver._solve, args=(input_data,), kwargs={})
+            except multiprocessing.context.TimeoutError:
+                logger.debug('{} has timed out (>{} seconds)'.format(solver, self.timeout))
+                skip = True
             except Exception as ex:
-                logging.getLogger('solver').exception('{} encoutered an exception with {}: '.format(self, solver))
+                logger.exception('{} encoutered an exception with {}: '.format(self, solver))
                 last_exception = ex
+                skip = True
+
+            solver.cleanup()
+            if skip:
                 continue
 
-            if best_solution is None or solution.get_value() >= best_solution.get_value():
+            logger.debug('{} solution value is {}'.format(solver, solution.get_value()))
+
+            if best_solution is None or solution.is_better(best_solution):
                 best_solution = solution
+                best_solver = solver
                 if best_solution.is_optimal():
                     break
 
         if best_solution is None and last_exception is not None:
             raise last_exception
+
+        if best_solver:
+            logger.debug('Best solution found by {}'.format(best_solver))
+
         return best_solution
 
 

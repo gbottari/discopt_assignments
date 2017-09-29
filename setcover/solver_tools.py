@@ -1,11 +1,16 @@
+import multiprocessing
+import random
+import logging
+import copy
+import pymzn
+from collections import namedtuple
+from typing import List
+
 import sys
 sys.path.append('..')
 
-import logging
-import pymzn
-from collections import namedtuple
 from tools.solver_tools import Solution, Solver
-from typing import List
+
 
 SCSet = namedtuple("Set", ["index", "cost", "items"])
 SCProblem = namedtuple("Problem", ["sets", "items"])
@@ -25,6 +30,9 @@ class SCSolution(Solution):
             if self.selections[i]:
                 solution_items.update(self.problem.sets[i].items)
         return solution_items == self.problem.items
+
+    def is_better(self, other: 'SCSolution'):
+        return self.get_value() < other.get_value()
 
     def serialize(self):
         value = self.get_value()
@@ -55,9 +63,8 @@ class SCSolver(Solver):
         problem = SCProblem(sets=[], items=set())
         for i in range(set_count):
             parts = lines[i + 1].split()
-            # WARNING: we changed the cast here from FLOAT to INT
             items = [int(p) for p in parts[1:]]
-            problem.sets.append(SCSet(i, int(parts[0]), items))
+            problem.sets.append(SCSet(i, float(parts[0]), items))
             problem.items.update(items)
         return problem
 
@@ -65,7 +72,159 @@ class SCSolver(Solver):
         raise NotImplementedError()
 
 
+class FirstFitSCSolver(SCSolver):
+    """
+    Adds sets until the problem is satisfied sequentially.
+    """
+    def _solve(self, problem: SCProblem):
+        set_count = len(problem.sets)
+        item_count = len(problem.items)
+
+        solution = SCSolution(problem)
+        solution.selections = [0] * set_count
+        covered = set()
+
+        for s in problem.sets:
+            solution.selections[s.index] = 1
+            covered |= set(s.items)
+            if len(covered) >= item_count:
+                break
+
+        return solution
+
+
+class RandomFitSCSolver(SCSolver):
+    """
+    Adds sets until the problem is satisfied randomly.
+    """
+    def _solve(self, problem: SCProblem):
+        set_count = len(problem.sets)
+        item_count = len(problem.items)
+
+        solution = SCSolution(problem)
+        solution.selections = [0] * set_count
+        covered = set()
+        sets = problem.sets.copy()
+        random.shuffle(sets)
+
+        for s in sets:
+            solution.selections[s.index] = 1
+            covered |= set(s.items)
+            if len(covered) >= item_count:
+                break
+
+        return solution
+
+
+class GreedyMaxCoverSCSolver(SCSolver):
+    """
+    Order each set by the number of items that are not yet covered, and chooses that set.
+    """
+    def _solve(self, problem: SCProblem):
+        set_count = len(problem.sets)
+        item_count = len(problem.items)
+
+        sets = copy.deepcopy(problem.sets)
+        solution = SCSolution(problem)
+        solution.selections = [0] * set_count
+        covered = set()
+
+        while len(covered) < item_count:
+            # finds the sets with the largest covers:
+            max_cover = max(len(s.items) for s in sets)
+            best_sets = [s for s in sets if len(s.items) == max_cover]
+            lowest_cost = min(s.cost for s in best_sets)
+            choice: SCSet = next(s for s in best_sets if s.cost == lowest_cost)
+            solution.selections[choice.index] = 1
+
+            # remove that set:
+            sets.remove(choice)
+
+            # update the items in the set given the choice
+            for s in sets:
+                if choice in s.items:
+                    s.items.remove(choice)
+
+            covered.update(choice.items)
+
+            # removes empty sets
+            sets = [s for s in sets if s.items]
+
+        return solution
+
+
+class GreedyMaxCoverPerCostSCSolver(SCSolver):
+    """
+    Order each set by the number of items that are not yet covered, and chooses that set.
+    """
+    def _solve(self, problem: SCProblem):
+        set_count = len(problem.sets)
+        item_count = len(problem.items)
+
+        sets = copy.deepcopy(problem.sets)
+        solution = SCSolution(problem)
+        solution.selections = [0] * set_count
+        covered = set()
+
+        while len(covered) < item_count:
+            # finds the sets with the largest covers:
+            best_sets = sorted(sets, key=lambda s_: len(s_.items) / s_.cost, reverse=True)
+            choice: SCSet = best_sets[0]
+            solution.selections[choice.index] = 1
+
+            # remove that set:
+            sets.remove(choice)
+
+            # update the items in the set given the choice
+            for s in sets:
+                if choice in s.items:
+                    s.items.remove(choice)
+
+            covered.update(choice.items)
+
+            # removes empty sets
+            sets = [s for s in sets if s.items]
+
+        return solution
+
+
+class GreedyMinCostSCSolver(SCSolver):
+    """
+    Selects sets with minimum cost until everything is covered.
+    """
+    def _solve(self, problem: SCProblem):
+        set_count = len(problem.sets)
+        item_count = len(problem.items)
+
+        solution = SCSolution(problem)
+        solution.selections = [0] * set_count
+        covered = set()
+
+        for s in sorted(problem.sets, key=lambda s_: s_.cost):
+            solution.selections[s.index] = 1
+            covered |= set(s.items)
+            if len(covered) >= item_count:
+                break
+
+        return solution
+
+
 class CPSCSolver(SCSolver):
+    def __init__(self):
+        self.timeout = None
+
+    def cleanup(self):
+        import os
+        os.system('taskkill /f /im mzn2fzn.exe')
+        os.system('taskkill /f /im fzn-gecode.exe')
+
+    def set_timeout(self, timeout: int):
+        self.timeout = timeout // 5
+
+    def _get_minizinc_params(self):
+        physical_cores = multiprocessing.cpu_count() // 2
+        return dict(parallel=physical_cores - 1, timeout=self.timeout)
+
     def _solve(self, problem: SCProblem):
         set_count = len(problem.sets)
         item_count = len(problem.items)
@@ -77,9 +236,35 @@ class CPSCSolver(SCSolver):
                 covered_by[item].add(i + 1)
 
         costs = [s.cost for s in problem.sets]
+        cost_values = set(costs)
 
-        data = dict(nsets=set_count, nitems=item_count, covered_by=covered_by, costs=costs)
-        sol_stream: pymzn.SolnStream = pymzn.minizinc('setcover.mzn', data=data, parallel=8)
+        data = dict(nsets=set_count, nitems=item_count, covered_by=covered_by, costs=costs, COSTS=cost_values)
+        sol_stream: pymzn.SolnStream = pymzn.minizinc('setcover.mzn', data=data, **self._get_minizinc_params())
+
+        solution = SCSolution(problem=problem)
+        solution.selections = [int(x) for x in sol_stream._solns[0]['x']]
+        solution.optimal = sol_stream.complete
+        return solution
+
+
+class CPSCSolver2(CPSCSolver):
+    def set_timeout(self, timeout: int):
+        self.timeout = timeout // 2
+
+    def _get_minizinc_params(self):
+        cores = multiprocessing.cpu_count()
+        return dict(parallel=cores - 1, timeout=self.timeout)
+
+    def _solve(self, problem: SCProblem):
+        set_count = len(problem.sets)
+        item_count = len(problem.items)
+
+        costs = [s.cost for s in problem.sets]
+        covers = [set(s.items) for s in problem.sets]
+
+        data = dict(nsets=set_count, nitems=item_count, covers=covers, costs=costs)
+        sol_stream: pymzn.SolnStream = pymzn.minizinc('setcover2.mzn', data=data, **self._get_minizinc_params())
+
         solution = SCSolution(problem=problem)
         solution.selections = [int(x) for x in sol_stream._solns[0]['x']]
         solution.optimal = sol_stream.complete

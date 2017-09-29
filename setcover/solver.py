@@ -27,15 +27,14 @@
 import sys
 sys.path.append('..')
 
-from collections import namedtuple
-from tools.solver_tools import SolverManager
-from setcover.solver_tools import CPSCSolver
+from tools.solver_tools import SolverManager, MultiSolver
+from setcover.solver_tools import *
 
-Set = namedtuple("Set", ['index', 'cost', 'items'])
 
 def solve_it(input_data):
     # Modify this code to run your optimization algorithm
-    solver = CPSCSolver()
+    solver = MultiSolver(timeout=10 * 60, solvers=[FirstFitSCSolver(), RandomFitSCSolver(), GreedyMinCostSCSolver(),
+        GreedyMaxCoverSCSolver(), GreedyMaxCoverPerCostSCSolver(), CPSCSolver2()])
     mgr = SolverManager()
     return mgr.solve(input_data, solver)
 
