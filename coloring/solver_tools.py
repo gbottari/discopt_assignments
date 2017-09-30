@@ -1,4 +1,6 @@
 import logging
+import multiprocessing
+import pymzn
 from collections import namedtuple
 from typing import List
 import sys
@@ -195,4 +197,31 @@ class GreedyMostNeighborsThenMostRestrictions(GreedyMostNeighbors):
             for neighbor in neighbors:
                 black_lists[neighbor].add(color)
 
+        return solution
+
+
+class CPGCSolver(GCSolver):
+    def __init__(self):
+        self.timeout = None
+
+    def cleanup(self):
+        import os
+        os.system('taskkill /f /im mzn2fzn.exe')
+        os.system('taskkill /f /im fzn-gecode.exe')
+
+    def set_timeout(self, timeout: int):
+        self.timeout = timeout // 2
+
+    def _get_minizinc_params(self):
+        physical_cores = multiprocessing.cpu_count() // 2
+        return dict(parallel=physical_cores - 1, timeout=self.timeout)
+
+    def _solve(self, problem: GCProblem):
+        neighbors = [set([n + 1 for n in ns]) for ns in problem.sorted_edges]
+        data = dict(n_nodes=len(problem.nodes), neighbors=neighbors)
+        sol_stream: pymzn.SolnStream = pymzn.minizinc('coloring.mzn', data=data, **self._get_minizinc_params())
+
+        solution = GCSolution(problem=problem)
+        solution.node_colors = [c - 1 for c in sol_stream._solns[0]['colors']]
+        solution.optimal = sol_stream.complete
         return solution

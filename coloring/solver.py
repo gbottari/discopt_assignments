@@ -3,14 +3,14 @@
 import sys
 sys.path.append('..')
 
-from coloring.solver_tools import *
 from tools.solver_tools import MultiSolver, SolverManager
+from coloring.solver_tools import *
 
 
 def solve_it(input_data):
     # Modify this code to run your optimization algorithm
-    solver = MultiSolver(timeout=10 * 60, solvers=[GreedyMostRestrictionsThenMostNeighbors(),
-                                                   GreedyMostNeighborsThenMostRestrictions()])
+    solver = MultiSolver(timeout=1 * 60, solvers=[GreedyMostRestrictionsThenMostNeighbors(),
+                                                 GreedyMostNeighborsThenMostRestrictions(), CPGCSolver()])
     mgr = SolverManager()
     return mgr.solve(input_data, solver)
 

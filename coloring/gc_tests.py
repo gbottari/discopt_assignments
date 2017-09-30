@@ -41,6 +41,12 @@ class TestSolver(unittest.TestCase):
         solution = solver._solve(problem)
         self._check_solution(solution, optimal=False)
 
+    def test_cp(self):
+        problem = get_problem_by_filename('gc_4_1')
+        solver = CPGCSolver()
+        solution = solver._solve(problem)
+        self._check_solution(solution, optimal=True)
+
     def test_trivial_solver_unfeasible(self):
         solver = TrivialGCSolver()
         solution = solver._solve(get_problem_1())
