@@ -59,10 +59,10 @@ class GCSolver(Solver):
             nodes.add(n2)
             edges.append((min(n1, n2), max(n1, n2)))
 
-        sorted_edges = [[n] for n in range(len(nodes))]
+        sorted_edges = [[] for _ in range(len(nodes))]
         for n1, n2 in edges:
             sorted_edges[n1].append(n2)
-            #sorted_edges[n2].append(n1)
+            sorted_edges[n2].append(n1)
 
         for i in range(len(sorted_edges)):
             sorted_edges[i].sort()
@@ -103,3 +103,23 @@ class GreedyChangeUntilSatisfy(GCSolver):
 
         return solution
 
+
+class GreedyBlackList(GCSolver):
+    """
+    Assigns the first color that it is available for a node, respecting its neighbors.
+    """
+    def _solve(self, problem: GCProblem):
+        solution = GCSolution(problem)
+        solution.node_colors = [None] * len(problem.nodes)
+
+        black_lists = [set() for _ in range(len(problem.nodes))]
+
+        for node, neighbors in enumerate(problem.sorted_edges):
+            color = 0
+            while color in black_lists[node]:
+                color += 1
+            solution.node_colors[node] = color
+            for neighbor in neighbors:
+                black_lists[neighbor].add(color)
+
+        return solution

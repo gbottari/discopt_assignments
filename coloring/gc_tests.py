@@ -26,10 +26,10 @@ class TestSolver(unittest.TestCase):
 
     def test_solution_reading(self):
         problem = get_problem_by_filename('gc_4_1')
-        self.assertEqual(problem.sorted_edges, [[0, 1], [1, 2, 3], [2], [3]])
+        self.assertEqual(problem.sorted_edges, [[1], [0, 2, 3], [1], [1]])
 
     def test_solver_consistency(self):
-        for solver in (TrivialGCSolver(), GreedyChangeUntilSatisfy()):
+        for solver in (TrivialGCSolver(), GreedyChangeUntilSatisfy(), GreedyBlackList()):
             for problem in (get_problem_by_filename(fn) for fn in list(get_all_problem_filenames())[-3:]):
                 solution = solver._solve(problem)
                 self._check_solution(solution, optimal=False)
