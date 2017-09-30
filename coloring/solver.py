@@ -9,7 +9,8 @@ from tools.solver_tools import MultiSolver, SolverManager
 
 def solve_it(input_data):
     # Modify this code to run your optimization algorithm
-    solver = MultiSolver(timeout=10 * 60, solvers=[GreedyBlackList()])
+    solver = MultiSolver(timeout=10 * 60, solvers=[GreedyMostRestrictionsThenMostNeighbors(),
+                                                   GreedyMostNeighborsThenMostRestrictions()])
     mgr = SolverManager()
     return mgr.solve(input_data, solver)
 

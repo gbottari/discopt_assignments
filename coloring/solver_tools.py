@@ -104,9 +104,10 @@ class GreedyChangeUntilSatisfy(GCSolver):
         return solution
 
 
-class GreedyBlackList(GCSolver):
+class GreedyMostNeighbors(GCSolver):
     """
-    Assigns the first color that it is available for a node, respecting its neighbors.
+    Assigns the first color that it is available for a node respecting its neighbors. Select colors for the nodes with
+    the most neighbors first.
     """
     def _solve(self, problem: GCProblem):
         solution = GCSolution(problem)
@@ -114,7 +115,79 @@ class GreedyBlackList(GCSolver):
 
         black_lists = [set() for _ in range(len(problem.nodes))]
 
-        for node, neighbors in enumerate(problem.sorted_edges):
+        for node, neighbors in sorted(enumerate(problem.sorted_edges), key=lambda t: len(t[1]), reverse=True):
+            color = 0
+            while color in black_lists[node]:
+                color += 1
+            solution.node_colors[node] = color
+            for neighbor in neighbors:
+                black_lists[neighbor].add(color)
+
+        return solution
+
+
+class GreedyMostRestrictionsThenMostNeighbors(GreedyMostNeighbors):
+    """
+    Sort by restrictions and then neighbors.
+    """
+    def _solve(self, problem: GCProblem):
+        solution = GCSolution(problem)
+        solution.node_colors = [None] * len(problem.nodes)
+
+        black_lists = [set() for _ in range(len(problem.nodes))]
+        unassigned_nodes = set(range(len(problem.nodes)))
+
+        while unassigned_nodes:
+            # Find a node that:
+            # 1. Has the most restrictions on the blacklist
+            # 2. Has the most neighbors
+            best_node = (None, 0, 0)
+            for n in unassigned_nodes:
+                restrictions = len(black_lists[n])
+                neighbors = len(problem.sorted_edges[n])
+                if restrictions > best_node[1] or (restrictions == best_node[1] and neighbors > best_node[2]):
+                    best_node = (n, restrictions, neighbors)
+
+            node = best_node[0]
+            neighbors = problem.sorted_edges[node]
+            unassigned_nodes.remove(node)
+
+            color = 0
+            while color in black_lists[node]:
+                color += 1
+            solution.node_colors[node] = color
+            for neighbor in neighbors:
+                black_lists[neighbor].add(color)
+
+        return solution
+
+
+class GreedyMostNeighborsThenMostRestrictions(GreedyMostNeighbors):
+    """
+    Sort by restrictions and then neighbors.
+    """
+    def _solve(self, problem: GCProblem):
+        solution = GCSolution(problem)
+        solution.node_colors = [None] * len(problem.nodes)
+
+        black_lists = [set() for _ in range(len(problem.nodes))]
+        unassigned_nodes = set(range(len(problem.nodes)))
+
+        while unassigned_nodes:
+            # Find a node that:
+            # 1. Has the most restrictions on the blacklist
+            # 2. Has the most neighbors
+            best_node = (None, 0, 0)
+            for n in unassigned_nodes:
+                restrictions = len(black_lists[n])
+                neighbors = len(problem.sorted_edges[n])
+                if neighbors > best_node[2] or (neighbors == best_node[2] and restrictions > best_node[1]):
+                    best_node = (n, restrictions, neighbors)
+
+            node = best_node[0]
+            neighbors = problem.sorted_edges[node]
+            unassigned_nodes.remove(node)
+
             color = 0
             while color in black_lists[node]:
                 color += 1
