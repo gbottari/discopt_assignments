@@ -120,7 +120,7 @@ class MultiSolver(Solver):
 
             logger.debug('{} solution value is {}'.format(solver, solution.get_value()))
 
-            if best_solution is None or solution.is_better(best_solution):
+            if best_solution is None or solution.is_better(best_solution) or solution.is_optimal():
                 best_solution = solution
                 best_solver = solver
                 if best_solution.is_optimal():
