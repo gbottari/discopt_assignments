@@ -95,3 +95,6 @@ ENV/
 
 # PyCharm
 .idea/
+
+# Current project
+data/
