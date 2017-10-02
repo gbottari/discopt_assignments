@@ -47,6 +47,12 @@ class TestSolver(unittest.TestCase):
         solution = solver._solve(problem)
         self._check_solution(solution, optimal=True)
 
+    def test_lower_bound(self):
+        problem = get_problem_by_filename('gc_4_1')
+        solver = CPGCSolver()
+        cn = solver._get_clique_number_lb(problem)
+        self.assertEqual(cn, 2)
+
     def test_trivial_solver_unfeasible(self):
         solver = TrivialGCSolver()
         solution = solver._solve(get_problem_1())

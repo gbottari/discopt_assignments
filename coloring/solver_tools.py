@@ -210,15 +210,26 @@ class CPGCSolver(GCSolver):
         os.system('taskkill /f /im fzn-gecode.exe')
 
     def set_timeout(self, timeout: int):
-        self.timeout = timeout // 2
+        self.timeout = max(int(timeout * 0.80), timeout - 10)
 
     def _get_minizinc_params(self):
-        physical_cores = multiprocessing.cpu_count() // 2
-        return dict(parallel=physical_cores - 1, timeout=self.timeout)
+        cores = multiprocessing.cpu_count()
+        return dict(parallel=cores, timeout=self.timeout)
+
+    @staticmethod
+    def _get_clique_number_lb(problem: GCProblem) -> int:
+        cn = 0
+        n = len(problem.nodes)
+        for d in (len(se) for se in problem.sorted_edges):
+            cn += (1 / (n - d)) if n > d else 0
+        return int(round(cn, 0))
 
     def _solve(self, problem: GCProblem):
         neighbors = [set([n + 1 for n in ns]) for ns in problem.sorted_edges]
-        data = dict(n_nodes=len(problem.nodes), neighbors=neighbors)
+        nodes_by_degree = [i + 1 for i, _ in sorted(enumerate(problem.sorted_edges), key=lambda t: t[1], reverse=True)]
+        data = dict(n_nodes=len(problem.nodes), neighbors=neighbors, nodes_by_degree=nodes_by_degree)
+        pymzn.dict2dzn(data, fout='problem.dzn')
+
         sol_stream: pymzn.SolnStream = pymzn.minizinc('coloring.mzn', data=data, **self._get_minizinc_params())
 
         solution = GCSolution(problem=problem)
