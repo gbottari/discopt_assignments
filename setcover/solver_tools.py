@@ -1,6 +1,6 @@
 import multiprocessing
 import random
-import logging
+import os
 import copy
 import pymzn
 from collections import namedtuple
@@ -213,8 +213,7 @@ class CPSCSolver(SCSolver):
     def __init__(self):
         self.timeout = None
 
-    def cleanup(self):
-        import os
+    def stop(self):
         os.system('taskkill /f /im mzn2fzn.exe')
         os.system('taskkill /f /im fzn-gecode.exe')
 

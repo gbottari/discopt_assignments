@@ -109,13 +109,12 @@ def filter_neighbors_in_range(center: Point, r_low: float, r_high: float, neighb
 
 
 class MultiRandomInitializer(TSPSolver):
-    def __init__(self, n=3):
+    def __init__(self, n):
         self.n = n
 
     def _solve(self, input_data: TSPProblem) -> TSPSolution:
         seq = list(range(len(input_data.points)))
 
-        # input order
         solution = InputOrderTSPSolver()._solve(input_data)
         best_value = solution.get_value()
 
@@ -132,11 +131,16 @@ class MultiRandomInitializer(TSPSolver):
 
 
 class GreedyRandomSwapTSPSolver(TSPSolver):
-    def __init__(self, max_swaps=100000):
+    def __init__(self, max_swaps=100):
         self.max_swaps = max_swaps
+        self.best_solution = None
+
+    def stop(self) -> TSPSolution:
+        return self.best_solution
 
     def _solve(self, input_data: TSPProblem):
         solution = MultiRandomInitializer(n=3)._solve(input_data)
+        self.best_solution = solution
         best_value = solution.get_value()
         seq = list(range(len(solution.sequence)))
 
@@ -161,7 +165,6 @@ class GreedyRandomSwapTSPSolver(TSPSolver):
             new_value -= solution.problem.dist(prev_i, point_i)
             new_value -= solution.problem.dist(point_j, next_j)
             new_value -= solution.problem.dist(prev_j, point_j)
-            assert(new_value >= 0)
 
             new_value += solution.problem.dist(point_j, next_i)
             new_value += solution.problem.dist(prev_i, point_j)
@@ -172,7 +175,7 @@ class GreedyRandomSwapTSPSolver(TSPSolver):
                 # Actually do the swap:
                 solution.sequence[i], solution.sequence[j] = solution.sequence[j], solution.sequence[i]
                 best_value = new_value
-                assert(solution.get_value() == new_value)
+                self.best_solution = solution
 
         return solution
 
@@ -180,33 +183,17 @@ class GreedyRandomSwapTSPSolver(TSPSolver):
 class Greedy2OptTSPSolver(TSPSolver):
     def __init__(self, max_swaps=100):
         self.max_swaps = max_swaps
-        #self.max_swap_length = 1
+        self.best_solution = None
 
-    # def _solve(self, input_data: TSPProblem):
-    #     solution = TSPSolution(input_data)
-    #     solution.sequence = list(range(len(solution.problem.points)))
-    #     seq = list(range(len(solution.sequence)))
-    #     random.shuffle(solution.sequence)
-    #
-    #     for _ in range(self.max_swaps):
-    #         i = random.choice(seq[:-1])
-    #         j = random.choice(seq[i + 1:])
-    #
-    #         # do we need to perform the swap to see if makes sense?
-    #
-    #         new_solution = TSPSolution(input_data)
-    #         new_solution.sequence = solution.sequence[:i] + list(reversed(solution.sequence[i:j + 1])) + solution.sequence[j + 1:]
-    #         if new_solution.is_better(solution):
-    #             solution = new_solution
-    #
-    #     return solution
+    def stop(self) -> TSPSolution:
+        return self.best_solution
 
     def _solve(self, input_data: TSPProblem):
         solution = MultiRandomInitializer(n=3)._solve(input_data)
         best_value = solution.get_value()
+        self.best_solution = solution
 
         seq = list(range(len(solution.sequence)))
-        logger = logging.getLogger('solver')
 
         for _ in range(self.max_swaps):
             i = random.choice(seq[:-1])
@@ -221,27 +208,16 @@ class Greedy2OptTSPSolver(TSPSolver):
             next_j = solution.next_point(j)
 
             new_value = best_value
-            d = solution.problem.dist(prev_i, point_i)
-            new_value -= d
-            d = solution.problem.dist(point_j, next_j)
-            new_value -= d
-            #assert(new_value >= 0)
-            d = solution.problem.dist(prev_i, point_j)
-            new_value += d
-            d = solution.problem.dist(point_i, next_j)
-            new_value += d
+            new_value -= solution.problem.dist(prev_i, point_i)
+            new_value -= solution.problem.dist(point_j, next_j)
+            new_value += solution.problem.dist(prev_i, point_j)
+            new_value += solution.problem.dist(point_i, next_j)
 
             if new_value < best_value:
                 # Actually do the 2-OPT
                 new_seq = solution.sequence[:i] + list(reversed(solution.sequence[i:j + 1])) + solution.sequence[j + 1:]
-                #assert(solution.sequence[j] == new_seq[i])
-                #assert (solution.sequence[i] == new_seq[j])
-                #assert(len(solution.sequence) == len(new_seq))
-
                 solution.sequence = new_seq
                 best_value = new_value
-
-                #assert(round(solution.get_value(), 1) == round(new_value, 1))
-                #logger.debug('2-OPT improved by swap: {} - {}: {}'.format(i, j, best_value))
+                self.best_solution = solution
 
         return solution

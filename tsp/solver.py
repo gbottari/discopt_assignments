@@ -10,7 +10,8 @@ from tsp.solver_tools import *
 
 def solve_it(input_data):
     # Modify this code to run your optimization algorithm
-    solver = MultiSolver(timeout=2 * 60, solvers=[InputOrderTSPSolver(), Greedy2OptTSPSolver(1000000)])
+    swaps = 10000000
+    solver = MultiSolver(timeout=2 * 60, solvers=[InputOrderTSPSolver(), Greedy2OptTSPSolver(swaps)])
     mgr = SolverManager()
     return mgr.solve(input_data, solver)
 

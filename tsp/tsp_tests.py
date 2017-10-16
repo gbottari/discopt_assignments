@@ -30,9 +30,13 @@ class TestSolver(unittest.TestCase):
 
     def test_input_order_solver(self):
         solver = InputOrderTSPSolver()
-        for problem in get_all_problems():
-            solution = solver._solve(problem)
-            self._check_solution(solution, optimal=False)
+        solution = solver._solve(get_easy_problem())
+        self._check_solution(solution, optimal=False)
+
+    def test_greedy_random_swap(self):
+        solver = GreedyRandomSwapTSPSolver()
+        solution = solver._solve(get_easy_problem())
+        self._check_solution(solution, optimal=False)
 
     def test_next_point(self):
         problem = get_easy_problem()
@@ -63,7 +67,6 @@ class TestSolver(unittest.TestCase):
         problem.dist(problem.points[1], problem.points[0])
         self.assertEqual(len(problem.dist_cache), 1)
 
-    #@unittest.skip('')
     def test_2opt_better_than_inputorder(self):
         problem = get_problem_by_filename('tsp_51_1')
         random_swap_solver = Greedy2OptTSPSolver(max_swaps=10000)
@@ -73,4 +76,3 @@ class TestSolver(unittest.TestCase):
 
         io_sol = input_order_solver._solve(problem)
         self.assertTrue(rs_sol.is_better(io_sol))
-

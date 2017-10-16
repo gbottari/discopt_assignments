@@ -3,7 +3,7 @@ import multiprocessing
 from multiprocessing.pool import ThreadPool
 import logging
 import logging.handlers
-from typing import List
+from typing import List, Union
 
 LOGS_DIR = 'logs'
 
@@ -62,7 +62,7 @@ class Solver:
     def solve(self, raw_input_data: str):
         return self._solve(self._parse(raw_input_data))
 
-    def cleanup(self):
+    def stop(self) -> Union[None, Solution]:
         pass
 
     def set_timeout(self, timeout: int):
@@ -102,20 +102,21 @@ class MultiSolver(Solver):
 
         for solver in self.solvers:
             solver.set_timeout(timeout=self.timeout)
-            skip = False
 
             try:
                 solution = self._run_limited_time(func=solver._solve, args=(input_data,), kwargs={})
             except multiprocessing.context.TimeoutError:
                 logger.debug('{} has timed out (>{} seconds)'.format(solver, self.timeout))
-                skip = True
+                solution = None
             except Exception as ex:
                 logger.exception('{} encoutered an exception with {}: '.format(self, solver))
                 last_exception = ex
-                skip = True
+                solution = None
 
-            solver.cleanup()
-            if skip:
+            solution_after_stop = solver.stop()
+            solution = solution if solution is not None else solution_after_stop
+            if solution is None:
+                logger.debug('No solution found with {}'.format(solver))
                 continue
 
             logger.debug('{} solution value is {}'.format(solver, solution.get_value()))
@@ -123,6 +124,7 @@ class MultiSolver(Solver):
             if best_solution is None or solution.is_better(best_solution) or solution.is_optimal():
                 best_solution = solution
                 best_solver = solver
+                logger.debug('{} has the best solution: {}'.format(solver, solution.get_value()))
                 if best_solution.is_optimal():
                     break
 
