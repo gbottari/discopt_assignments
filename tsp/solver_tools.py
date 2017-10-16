@@ -2,7 +2,7 @@ import math
 import random
 import logging
 from collections import namedtuple
-from typing import List
+from typing import List, Any, Tuple
 
 import sys
 sys.path.append('..')
@@ -12,6 +12,28 @@ from tools.solver_tools import Solution, Solver
 
 Point = namedtuple("Point", ['x', 'y'])
 Sequence = List[int]
+
+
+class Stats:
+    def __init__(self):
+        self.iterations = 0
+        self.improvements: List[int] = []
+        self.initial_value = 0.0
+        self.final_value = 0.0
+
+    def __repr__(self):
+        s = ['=== Summary ===',
+             '\titerations = {}, initial_value = {}'.format(self.iterations, self.initial_value),
+             'Improvements:'] + ['{: 5d}: {: 3.2f} %'.format(i, p) for i, p in self._get_percent_improvements()]
+        return '\n'.join(s)
+
+    def _get_percent_improvements(self):
+        last_imp = self.initial_value
+        last_iter = 0
+        for i, imp in self.improvements:
+            yield i - last_iter, (1. - imp / last_imp) * 100.
+            last_imp = imp
+            last_iter = i
 
 
 class TSPProblem:
@@ -190,12 +212,15 @@ class Greedy2OptTSPSolver(TSPSolver):
 
     def _solve(self, input_data: TSPProblem):
         solution = MultiRandomInitializer(n=3)._solve(input_data)
+        solution.stats = Stats()
         best_value = solution.get_value()
         self.best_solution = solution
+        solution.stats.initial_value = best_value
 
         seq = list(range(len(solution.sequence)))
 
-        for _ in range(self.max_swaps):
+        for k in range(self.max_swaps):
+            solution.stats.iterations += 1
             i = random.choice(seq[:-1])
             j = random.choice(seq[i + 1:])
 
@@ -215,9 +240,11 @@ class Greedy2OptTSPSolver(TSPSolver):
 
             if new_value < best_value:
                 # Actually do the 2-OPT
+                solution.stats.improvements.append((k, new_value))
                 new_seq = solution.sequence[:i] + list(reversed(solution.sequence[i:j + 1])) + solution.sequence[j + 1:]
                 solution.sequence = new_seq
                 best_value = new_value
+                solution.stats.final_value = best_value
                 self.best_solution = solution
 
         return solution

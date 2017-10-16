@@ -30,8 +30,11 @@ def create_logger(level):
 
 
 class Solution:
+    def __init__(self):
+        self.stats = None
+
     def __repr__(self):
-        return 'Solution<\n{}\n>'.format(self.serialize())
+        return 'Solution<\n{}\n>'.format(self.get_value())
 
     def is_feasible(self) -> bool:
         raise NotImplementedError()
@@ -160,4 +163,8 @@ class SolverManager:
         if not solution.is_feasible():
             raise Exception('Solution is not feasible!')
         self.logger.info('Solution value: {}'.format(solution.get_value()))
+
+        if hasattr(solution, 'stats'):
+            self.logger.debug(solution.stats)
+
         return solution.serialize()
