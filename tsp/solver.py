@@ -10,8 +10,9 @@ from tsp.solver_tools import *
 
 def solve_it(input_data):
     # Modify this code to run your optimization algorithm
-    swaps = 10000000
-    solver = MultiSolver(timeout=10, solvers=[InputOrderTSPSolver(), Greedy2OptTSPSolver(swaps)])
+    swaps = 100000000
+    solver = MultiSolver(timeout=2 * 60, solvers=[InputOrderTSPSolver(), Greedy2OptTSPSolver(swaps),
+                                                  GreedyBestSwapTSPSolver(swaps)])
     mgr = SolverManager()
     return mgr.solve(input_data, solver)
 
@@ -24,7 +25,7 @@ if __name__ == '__main__':
         file_location = sys.argv[1].strip()
         with open(file_location, 'r') as input_data_file:
             input_data = input_data_file.read()
-        print(solve_it(input_data))
+        solve_it(input_data)
     else:
         print('This test requires an input file.  Please select one from the data directory. (i.e. python solver.py ./data/tsp_51_1)')
 

@@ -17,21 +17,22 @@ Sequence = List[int]
 class Stats:
     def __init__(self):
         self.iterations = 0
-        self.improvements: List[int] = []
+        self.improvements: List[Tuple] = []
         self.initial_value = 0.0
         self.final_value = 0.0
 
     def __repr__(self):
-        s = ['=== Summary ===',
-             '\titerations = {}, initial_value = {}'.format(self.iterations, self.initial_value),
-             'Improvements:'] + ['{: 5d}: {: 3.2f} %'.format(i, p) for i, p in self._get_percent_improvements()]
+        s = ['\n=== Stats ===',
+             'Improvements:'] + ['{: 7d}: {: 3.1f} % - [{}]'.format(i, p, e) for i, p, e in self._get_percent_improvements()] + \
+            ['\titerations = {}, initial_value = {:1.0f}, final_value = {:1.0f}'.format(self.iterations,
+                self.initial_value, self.final_value)]
         return '\n'.join(s)
 
     def _get_percent_improvements(self):
         last_imp = self.initial_value
         last_iter = 0
-        for i, imp in self.improvements:
-            yield i - last_iter, (1. - imp / last_imp) * 100.
+        for i, imp, extra in self.improvements:
+            yield i - last_iter, (1. - imp / last_imp) * 100., extra
             last_imp = imp
             last_iter = i
 
@@ -216,16 +217,20 @@ class Greedy2OptTSPSolver(TSPSolver):
         best_value = solution.get_value()
         self.best_solution = solution
         solution.stats.initial_value = best_value
+        max_len_p = 0.5
+        max_len = int(max_len_p * input_data.n)
 
         seq = list(range(len(solution.sequence)))
 
         for k in range(self.max_swaps):
-            solution.stats.iterations += 1
             i = random.choice(seq[:-1])
+            #j = random.choice(seq[i + 1:i + 1 + 1 + int(k * input_data.n / self.max_swaps)])
             j = random.choice(seq[i + 1:])
 
             if i == 0 and j == len(seq) - 1:
                 continue  # otherwise will discount twice and the solution is equivalent to the current one
+
+            solution.stats.iterations += 1
 
             point_i = solution.point(i)
             point_j = solution.point(j)
@@ -240,7 +245,8 @@ class Greedy2OptTSPSolver(TSPSolver):
 
             if new_value < best_value:
                 # Actually do the 2-OPT
-                solution.stats.improvements.append((k, new_value))
+                solution.stats.improvements.append((k, new_value, '{: 5d} <-> {: 5d}, dist = {: 5d} ({: 3.0f} %)'
+                                                    .format(i, j, j - i, (j - i) * 100 / input_data.n)))
                 new_seq = solution.sequence[:i] + list(reversed(solution.sequence[i:j + 1])) + solution.sequence[j + 1:]
                 solution.sequence = new_seq
                 best_value = new_value
@@ -248,3 +254,88 @@ class Greedy2OptTSPSolver(TSPSolver):
                 self.best_solution = solution
 
         return solution
+
+
+class GreedyBestSwapTSPSolver(TSPSolver):
+    def __init__(self, max_swaps=100):
+        self.max_swaps = max_swaps
+        self.best_solution = None
+        self.target_dist = None
+
+    def stop(self) -> TSPSolution:
+        return self.best_solution
+
+    def find_edge(self, rng, solution):
+        self.target_dist *= 0.9999
+        for i in rng:
+            point_i = solution.point(i)
+            next_i = solution.next_point(i)
+            dist_i = solution.problem.dist(point_i, next_i)
+
+            if dist_i > self.target_dist:
+                yield i
+
+    def _solve(self, input_data: TSPProblem):
+        solution = MultiRandomInitializer(n=3)._solve(input_data)
+        solution.stats = Stats()
+        best_value = solution.get_value()
+        self.best_solution = solution
+        solution.stats.initial_value = best_value
+
+        seq = list(range(len(solution.sequence)))
+        random.shuffle(seq)
+
+        # calculates avg dist
+        sample_n = max(int(input_data.n * 0.2), 5)
+        avg_dist = 0.0
+        for i in seq[:sample_n]:
+            point_i = solution.point(i)
+            next_i = solution.next_point(i)
+            avg_dist += solution.problem.dist(point_i, next_i)
+        avg_dist /= sample_n
+        self.target_dist = avg_dist * 2
+
+        k = 0
+        while k < self.max_swaps:
+            random.shuffle(seq)
+            for i, j in zip(self.find_edge(seq, solution), self.find_edge(reversed(seq), solution)):
+                if i == j:  # reached half of the list
+                    break
+
+                if i > j:
+                    i, j = j, i
+
+                if i == 0 and j == len(seq) - 1:
+                    continue  # otherwise will discount twice and the solution is equivalent to the current one
+
+                point_i = solution.point(i)
+                prev_i = solution.prev_point(i)
+                point_j = solution.point(j)
+                next_j = solution.next_point(j)
+
+                solution.stats.iterations += 1
+
+                new_value = best_value
+                new_value -= solution.problem.dist(prev_i, point_i)
+                new_value -= solution.problem.dist(point_j, next_j)
+                new_value += solution.problem.dist(prev_i, point_j)
+                new_value += solution.problem.dist(point_i, next_j)
+
+                if new_value < best_value:
+                    # Actually do the 2-OPT
+                    solution.stats.improvements.append(
+                        (k, new_value, '{: 5d} <-> {: 5d}, dist = {: 5d} ({: 3.0f} %), td = {:1.0f}'
+                         .format(i, j, j - i, (j - i) * 100 / input_data.n, self.target_dist)))
+                    new_seq = solution.sequence[:i] + list(
+                        reversed(solution.sequence[i:j + 1])) + solution.sequence[j + 1:]
+                    solution.sequence = new_seq
+                    best_value = new_value
+                    solution.stats.final_value = best_value
+                    self.best_solution = solution
+
+                k += 1
+                if k >= self.max_swaps:
+                    break
+
+        return solution
+

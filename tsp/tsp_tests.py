@@ -34,8 +34,9 @@ class TestSolver(unittest.TestCase):
         self._check_solution(solution, optimal=False)
 
     def test_greedy_random_swap(self):
-        solver = GreedyRandomSwapTSPSolver()
-        solution = solver._solve(get_easy_problem())
+        problem = get_problem_by_filename('tsp_51_1')
+        solver = GreedyBestSwapTSPSolver(100)
+        solution = solver._solve(problem)
         self._check_solution(solution, optimal=False)
 
     def test_next_point(self):
