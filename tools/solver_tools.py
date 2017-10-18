@@ -160,7 +160,7 @@ class SolverManager:
     def solve(self, raw_input_data: str, solver: Solver) -> str:
         self.logger.info('Using {}'.format(solver))
         solution = solver.solve(raw_input_data)
-        if not solution.is_feasible():
+        if not (solution and solution.is_feasible()):
             raise Exception('Solution is not feasible!')
         self.logger.info('Solution value: {}'.format(solution.get_value()))
 

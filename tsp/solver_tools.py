@@ -218,41 +218,40 @@ class Greedy2OptTSPSolver(TSPSolver):
         best_value = solution.get_value()
         self.best_solution = solution
         solution.stats.initial_value = best_value
-        max_len_p = 0.5
-        max_len = int(max_len_p * input_data.n)
 
-        seq = list(range(len(solution.sequence)))
+        k = 0
+        while True:
+            for j in range(1, solution.problem.n):
+                for i in range(0, j):
+                    if i == 0 and j == solution.problem.n - 1:
+                        continue  # otherwise will discount twice and the solution is equivalent to the current one
 
-        for k in range(self.max_swaps):
-            i = random.choice(seq[:-1])
-            #j = random.choice(seq[i + 1:i + 1 + 1 + int(k * input_data.n / self.max_swaps)])
-            j = random.choice(seq[i + 1:])
+                    solution.stats.iterations += 1
+                    k += 1
 
-            if i == 0 and j == len(seq) - 1:
-                continue  # otherwise will discount twice and the solution is equivalent to the current one
+                    point_i = solution.point(i)
+                    point_j = solution.point(j)
+                    prev_i = solution.prev_point(i)
+                    next_j = solution.next_point(j)
 
-            solution.stats.iterations += 1
+                    new_value = best_value
+                    new_value -= solution.problem.dist(prev_i, point_i)
+                    new_value -= solution.problem.dist(point_j, next_j)
+                    new_value += solution.problem.dist(prev_i, point_j)
+                    new_value += solution.problem.dist(point_i, next_j)
 
-            point_i = solution.point(i)
-            point_j = solution.point(j)
-            prev_i = solution.prev_point(i)
-            next_j = solution.next_point(j)
+                    if new_value < best_value:
+                        # Actually do the 2-OPT
+                        solution.stats.improvements.append((k, new_value, '{: 5d} <-> {: 5d}, dist = {: 5d} ({: 3.0f} %)'
+                                                            .format(i, j, j - i, (j - i) * 100 / input_data.n)))
+                        new_seq = solution.sequence[:i] + list(reversed(solution.sequence[i:j + 1])) + solution.sequence[j + 1:]
+                        solution.sequence = new_seq
+                        best_value = new_value
+                        solution.stats.final_value = best_value
+                        self.best_solution = solution
 
-            new_value = best_value
-            new_value -= solution.problem.dist(prev_i, point_i)
-            new_value -= solution.problem.dist(point_j, next_j)
-            new_value += solution.problem.dist(prev_i, point_j)
-            new_value += solution.problem.dist(point_i, next_j)
-
-            if new_value < best_value:
-                # Actually do the 2-OPT
-                solution.stats.improvements.append((k, new_value, '{: 5d} <-> {: 5d}, dist = {: 5d} ({: 3.0f} %)'
-                                                    .format(i, j, j - i, (j - i) * 100 / input_data.n)))
-                new_seq = solution.sequence[:i] + list(reversed(solution.sequence[i:j + 1])) + solution.sequence[j + 1:]
-                solution.sequence = new_seq
-                best_value = new_value
-                solution.stats.final_value = best_value
-                self.best_solution = solution
+                    if k >= self.max_swaps:
+                        break
 
         return solution
 
@@ -428,6 +427,25 @@ class DistRangeTSPSolver(TSPSolver):
         return solution
 
 
+class DistInitializer(TSPSolver):
+    def _solve(self, input_data: TSPProblem):
+        top_left = input_data.points[0]
+        bottom_right = input_data.points[0]
+
+        for i, point in enumerate(input_data.points):
+            if point.x < top_left.x or point.y < top_left.y:
+                top_left = point
+            if point.x > bottom_right.x or point.y > bottom_right.y:
+                bottom_right = point
+
+        center = Point(x=(top_left.x + bottom_right.x) / 2, y=(top_left.y + bottom_right.y) / 2)
+
+        sorted_by_dist = sorted(enumerate(input_data.points), key=lambda t: input_data.dist(center, t[1]))
+        solution = TSPSolution(input_data)
+        solution.sequence = [t[0] for t in sorted_by_dist]
+        return solution
+
+
 class NewIdeaTSPSolver(TSPSolver):
     def __init__(self, passes=100):
         self.passes = passes
@@ -439,6 +457,7 @@ class NewIdeaTSPSolver(TSPSolver):
 
     def _solve(self, input_data: TSPProblem):
         solution = MultiRandomInitializer(n=3)._solve(input_data)
+        #solution = DistInitializer()._solve(input_data)
         solution.stats = Stats()
         best_value = solution.get_value()
         self.best_solution = solution
@@ -466,11 +485,10 @@ class NewIdeaTSPSolver(TSPSolver):
                         prev_i = solution.prev_point(i)
 
                         # check if 2-OPT works
-                        new_dist_j = solution.problem.dist(prev_i, point_j)
                         new_value = best_value
                         new_value -= solution.problem.dist(prev_i, point_i)
                         new_value -= solution.problem.dist(point_j, next_j)
-                        new_value += new_dist_j
+                        new_value += solution.problem.dist(prev_i, point_j)
                         new_value += solution.problem.dist(point_i, next_j)
 
                         solution.stats.iterations += 1
