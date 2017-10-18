@@ -1,7 +1,6 @@
 import unittest
 import os
 from tsp.solver_tools import *
-from tools.solver_tools import MultiSolver
 
 
 def get_all_problem_filenames():
@@ -35,7 +34,7 @@ class TestSolver(unittest.TestCase):
 
     def test_greedy_random_swap(self):
         problem = get_problem_by_filename('tsp_51_1')
-        solver = GreedyBestSwapTSPSolver(100)
+        solver = NewIdeaTSPSolver(100)
         solution = solver._solve(problem)
         self._check_solution(solution, optimal=False)
 

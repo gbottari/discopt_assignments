@@ -164,7 +164,7 @@ class SolverManager:
             raise Exception('Solution is not feasible!')
         self.logger.info('Solution value: {}'.format(solution.get_value()))
 
-        #if hasattr(solution, 'stats'):
+        # if hasattr(solution, 'stats'):
         #    self.logger.debug(solution.stats)
 
         return solution.serialize()
