@@ -17,24 +17,10 @@ Sequence = List[int]
 class Stats:
     def __init__(self):
         self.iterations = 0
-        self.improvements: List[Tuple] = []
+        self.improvements_x = []
+        self.improvements_y = []
         self.initial_value = 0.0
         self.final_value = 0.0
-
-    def __repr__(self):
-        s = ['\n=== Stats ===',
-             'Improvements:'] + ['{: 7d}: {: 4.0f} - [{}]'.format(i, r, e) for i, r, e in self._get_relative_improvements()] + \
-            ['\titerations = {}, initial_value = {:1.0f}, final_value = {:1.0f}'.format(self.iterations,
-                self.initial_value, self.final_value)]
-        return '\n'.join(s)
-
-    def _get_relative_improvements(self):
-        last_imp = self.initial_value
-        last_iter = 0
-        for i, imp, extra in self.improvements:
-            yield i - last_iter, last_imp - imp, extra
-            last_imp = imp
-            last_iter = i
 
 
 class TSPProblem:
@@ -44,13 +30,9 @@ class TSPProblem:
         self.n = len(self.points)
 
     def dist(self, p1: Point, p2: Point) -> float:
-        # We avoid recalculating the distance for (p2, p1) by imposing an ordering:
-        if p2.x < p1.x or p2.x == p1.x and p2.y < p1.y:
-            p1, p2 = p2, p1
-
-        key = p1, p2
+        key = frozenset((p1, p2))
         if key not in self.dist_cache:
-            dist = math.sqrt((p1.x - p2.x)**2 + (p1.y - p2.y)**2)
+            dist = math.sqrt((p1.x - p2.x) ** 2 + (p1.y - p2.y) ** 2)
             self.dist_cache[key] = dist
         else:
             dist = self.dist_cache[key]
@@ -59,6 +41,7 @@ class TSPProblem:
 
 class TSPSolution(Solution):
     def __init__(self, problem: TSPProblem):
+        super().__init__()
         self.problem = problem
         self.sequence: Sequence = []
         self.optimal = False
@@ -278,6 +261,7 @@ class GreedyBestSwapTSPSolver(TSPSolver):
     def _solve(self, input_data: TSPProblem):
         solution = MultiRandomInitializer(n=3)._solve(input_data)
         solution.stats = Stats()
+
         best_value = solution.get_value()
         self.best_solution = solution
         solution.stats.initial_value = best_value
@@ -464,43 +448,50 @@ class NewIdeaTSPSolver(TSPSolver):
         solution.stats.initial_value = best_value
 
         seq = list(range(solution.problem.n))
+        sample_size = min(solution.problem.n, 100)
 
         k = 0
         for p in range(self.passes):
             total_dists = 0.0
             for j in seq:
+                k += 1
+
                 point_j = solution.point(j)
                 next_j = solution.next_point(j)
                 dist_j = solution.problem.dist(point_j, next_j)
                 total_dists += dist_j
 
                 avg_dist = total_dists / (j + 1)
-                self.target_dist = avg_dist * (3 / (p + 1))
-                #self.target_dist = 0
-                k += 1
+                self.target_dist = avg_dist * (2 / (p + 1))
 
                 if dist_j > self.target_dist:
-                    for i in range(j - 1, 0, -1):
-                        point_i = solution.point(i)
-                        prev_i = solution.prev_point(i)
+                    for i in random.sample(seq, sample_size):
+                        a, b = (i, j) if i < j else (j, i)
+
+                        if a == 0 and b == solution.problem.n - 1:
+                            continue
+
+                        k += 1
+                        solution.stats.iterations += 1
+
+                        point_a = solution.point(a)
+                        prev_a = solution.prev_point(a)
+                        point_b = solution.point(b)
+                        next_b = solution.next_point(b)
 
                         # check if 2-OPT works
                         new_value = best_value
-                        new_value -= solution.problem.dist(prev_i, point_i)
-                        new_value -= solution.problem.dist(point_j, next_j)
-                        new_value += solution.problem.dist(prev_i, point_j)
-                        new_value += solution.problem.dist(point_i, next_j)
-
-                        solution.stats.iterations += 1
+                        new_value -= solution.problem.dist(prev_a, point_a)
+                        new_value -= solution.problem.dist(point_b, next_b)
+                        new_value += solution.problem.dist(prev_a, point_b)
+                        new_value += solution.problem.dist(point_a, next_b)
 
                         if new_value < best_value:
                             total_dists -= best_value - new_value
-                            solution.stats.improvements.append(
-                                (k, new_value, '{: 5d} <-> {: 5d}, dist = {: 5d} ({: 3.0f} %), td = {:3.0f}'
-                                 .format(i, j, j - i, (j - i) * 100 / input_data.n, self.target_dist)))
-                            new_seq = solution.sequence[:i] + list(
-                                reversed(solution.sequence[i:j + 1])) + solution.sequence[j + 1:]
-                            solution.sequence = new_seq
+                            solution.stats.improvements_x.append(k)
+                            solution.stats.improvements_y.append(new_value)
+                            solution.sequence = solution.sequence[:a] + list(
+                                reversed(solution.sequence[a:b + 1])) + solution.sequence[b + 1:]
                             best_value = new_value
                             solution.stats.final_value = best_value
                             self.best_solution = solution

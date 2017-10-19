@@ -13,7 +13,7 @@ def solve_it(input_data):
     swaps = 1000000
     #solver = MultiSolver(timeout=60, solvers=[InputOrderTSPSolver(), NewIdeaTSPSolver(swaps),
     #                                          GreedyBestSwapTSPSolver(swaps)])
-    solver = MultiSolver(timeout=30, solvers=[NewIdeaTSPSolver(swaps)])
+    solver = MultiSolver(timeout=30, solvers=[NewIdeaTSPSolver(300)])
     #solver = MultiSolver(timeout=10, solvers=[Greedy2OptTSPSolver(swaps)])
     mgr = SolverManager()
     return mgr.solve(input_data, solver)

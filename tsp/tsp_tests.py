@@ -1,5 +1,6 @@
 import unittest
 import os
+import time
 from tsp.solver_tools import *
 
 
@@ -32,7 +33,7 @@ class TestSolver(unittest.TestCase):
         solution = solver._solve(get_easy_problem())
         self._check_solution(solution, optimal=False)
 
-    def test_greedy_random_swap(self):
+    def test_new_idea(self):
         problem = get_problem_by_filename('tsp_51_1')
         solver = NewIdeaTSPSolver(100)
         solution = solver._solve(problem)
@@ -40,7 +41,7 @@ class TestSolver(unittest.TestCase):
 
     def test_next_point(self):
         problem = get_easy_problem()
-        solution = TSPSolution(problem)
+        solution: TSPSolution = TSPSolution(problem)
         solution.sequence = list(range(problem.n))
         random.shuffle(solution.sequence)
         self.assertEqual(solution.point(3), problem.points[solution.sequence[3]])
@@ -53,9 +54,9 @@ class TestSolver(unittest.TestCase):
         self.assertEqual(solution.prev_point(3), problem.points[solution.sequence[3 - 1]])
         self.assertEqual(solution.prev_point(0), problem.points[solution.sequence[-1]])
 
-    def test_check_get_value(self):
+    def test_check_get_value_matches_expeced_value(self):
         problem = get_easy_problem()
-        solution = TSPSolution(problem)
+        solution: TSPSolution = TSPSolution(problem)
         solution.sequence = [0, 4, 1, 3, 2]
         self.assertEqual(round(solution.get_value(), 1), 5.2)
 
@@ -67,12 +68,21 @@ class TestSolver(unittest.TestCase):
         problem.dist(problem.points[1], problem.points[0])
         self.assertEqual(len(problem.dist_cache), 1)
 
-    def test_2opt_better_than_inputorder(self):
-        problem = get_problem_by_filename('tsp_51_1')
-        random_swap_solver = Greedy2OptTSPSolver(max_swaps=10000)
-        input_order_solver = InputOrderTSPSolver()
-        rs_sol = random_swap_solver._solve(problem)
-        self._check_solution(rs_sol, optimal=False)
-
-        io_sol = input_order_solver._solve(problem)
-        self.assertTrue(rs_sol.is_better(io_sol))
+    '''
+    def test_dist_speed(self):
+        times = []
+        for func_str in ('dist', 'dist2'):
+            problem = get_easy_problem()
+            func = getattr(problem, func_str)
+            problem.dist_cache = dict()
+            for p in problem.points:
+                func(p, p)
+            t0_dist = time.time()
+            for _ in range(10000):
+                for p in problem.points:
+                    func(p, p)
+            t1_dist = time.time()
+            times.append(t1_dist - t0_dist)
+        print(times)
+        self.assertGreaterEqual(times[0], times[1])
+    '''
