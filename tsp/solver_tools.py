@@ -194,8 +194,10 @@ class Greedy2OptTSPSolver(TSPSolver):
     def __init__(self, max_swaps=100):
         self.max_swaps = max_swaps
         self.best_solution = None
+        self._stop = False
 
     def stop(self) -> TSPSolution:
+        self._stop = True
         return self.best_solution
 
     def _solve(self, input_data: TSPProblem):
@@ -209,6 +211,9 @@ class Greedy2OptTSPSolver(TSPSolver):
         while True:
             for j in range(1, solution.problem.n):
                 for i in range(0, j):
+                    if self._stop:
+                        break
+
                     if i == 0 and j == solution.problem.n - 1:
                         continue  # otherwise will discount twice and the solution is equivalent to the current one
 
@@ -228,8 +233,6 @@ class Greedy2OptTSPSolver(TSPSolver):
 
                     if new_value < best_value:
                         # Actually do the 2-OPT
-                        solution.stats.improvements.append((k, new_value, '{: 5d} <-> {: 5d}, dist = {: 5d} ({: 3.0f} %)'
-                                                            .format(i, j, j - i, (j - i) * 100 / input_data.n)))
                         new_seq = solution.sequence[:i] + list(reversed(solution.sequence[i:j + 1])) + solution.sequence[j + 1:]
                         solution.sequence = new_seq
                         best_value = new_value
@@ -237,9 +240,9 @@ class Greedy2OptTSPSolver(TSPSolver):
                         self.best_solution = solution
 
                     if k >= self.max_swaps:
-                        break
+                        return self.best_solution
 
-        return solution
+        return self.best_solution
 
 
 class GreedyBestSwapTSPSolver(TSPSolver):
@@ -434,17 +437,19 @@ class DistInitializer(TSPSolver):
 
 
 class NewIdeaTSPSolver(TSPSolver):
-    def __init__(self, passes=100, alpha=None, t0=1000):
+    def __init__(self, passes=100, alpha=None, t0=1000.):
         self.passes = passes
         self.best_solution = None
         self.target_dist = None
         self.alpha = alpha
         self.t0 = t0
+        self._stop = False
 
     def __repr__(self):
         return '<{}(alpha={:1.6f})>'.format(self.__class__.__name__, self.alpha)
 
     def stop(self) -> TSPSolution:
+        self._stop = True
         return self.best_solution
 
     def _solve(self, input_data: TSPProblem):
@@ -457,12 +462,17 @@ class NewIdeaTSPSolver(TSPSolver):
         self.best_solution = solution
         solution.stats.initial_value = best_value
         seq = list(range(solution.problem.n))
+        k = 0
         t = self.t0
         last_improvement = 0
         if self.alpha is None:
             self.alpha = 0.9999
 
-        for k in range(self.passes):
+        while not self._stop:
+            k += 1
+            if k >= self.passes:
+                break
+
             # if last_improvement < 0.000001:
             #     return self.best_solution
 
@@ -473,27 +483,24 @@ class NewIdeaTSPSolver(TSPSolver):
             if a == 0 and b == solution.problem.n - 1:
                 continue
 
-            # if k > 100 and last_improvement < 0.001:
-            #     t *= 1.001  # reheat
-            # else:
-            #     t *= self.alpha  # cooldowm
-            t *= self.alpha  # cooldowm
-            #solution.stats.temperature.append(t)
-
-            if t < 1:
-                logging.getLogger('solver').debug('t = {}, temp break'.format(t))
-                break
-
-            if k - last_improvement > 10000000:
-                logging.getLogger('solver').debug('k = {}, improvement break'.format(k))
-                break
-
             solution.stats.iterations += 1
 
             point_a = solution.point(a)
             prev_a = solution.prev_point(a)
             point_b = solution.point(b)
             next_b = solution.next_point(b)
+
+            if k - last_improvement > 100:
+                t *= self.alpha
+
+            #t *= self.alpha  # cooldowm
+
+            solution.stats.temperature.append(t)
+
+            # if k - last_improvement > 100000:
+            #     logging.getLogger('solver').debug('k = {}, improvement break'.format(k))
+            #     t = 100
+            #     last_improvement = k
 
             # check if 2-OPT works
             new_value = best_value
@@ -502,23 +509,29 @@ class NewIdeaTSPSolver(TSPSolver):
             new_value += solution.problem.dist(prev_a, point_b)
             new_value += solution.problem.dist(point_a, next_b)
 
-            prob = 1 if new_value < best_value else math.exp(-(new_value - best_value) / t)
+            prob = 1 if round(best_value - new_value, 1) > 0.0 else math.exp(-(new_value - best_value) / t)
             #solution.stats.probs.append(prob)
+
+            #bl_key = frozenset((point_a, prev_a, point_b, next_b))
+            #if prob < 1 and tabu_list.get(bl_key, 0) > k:
+            #    prob = 0
+
+            #tabu_list[bl_key] = k + 100 * solution.problem.n
 
             if prob >= random.random():
                 #solution.stats.improvements_x.append(k)
                 #solution.stats.improvements_y.append(new_value)
 
                 if new_value < actual_best_value:
+                    last_improvement = k
                     actual_best_value = new_value
                     self.best_solution = TSPSolution(input_data)
                     self.best_solution.stats = solution.stats
                     self.best_solution.sequence = solution.sequence.copy()
-                    last_improvement = k
+                    self.best_solution.stats.final_value = actual_best_value
                     print('k = {:10d}, t = {:4.0f}, obj = {:1.1f}'.format(k, t, actual_best_value))
 
                 best_value = new_value
-                solution.stats.final_value = best_value
 
                 solution.sequence = solution.sequence[:a] + list(
                     reversed(solution.sequence[a:b + 1])) + solution.sequence[b + 1:]
