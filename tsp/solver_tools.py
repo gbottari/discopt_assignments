@@ -434,11 +434,12 @@ class DistInitializer(TSPSolver):
 
 
 class NewIdeaTSPSolver(TSPSolver):
-    def __init__(self, passes=100, alpha=None):
+    def __init__(self, passes=100, alpha=None, t0=1000):
         self.passes = passes
         self.best_solution = None
         self.target_dist = None
         self.alpha = alpha
+        self.t0 = t0
 
     def __repr__(self):
         return '<{}(alpha={:1.6f})>'.format(self.__class__.__name__, self.alpha)
@@ -447,19 +448,24 @@ class NewIdeaTSPSolver(TSPSolver):
         return self.best_solution
 
     def _solve(self, input_data: TSPProblem):
-        solution = MultiRandomInitializer(n=1)._solve(input_data)
+        solution = TSPSolution(input_data)
+        solution.sequence = list(range(solution.problem.n))
+        random.shuffle(solution.sequence)
         solution.stats = Stats()
         best_value = solution.get_value()
+        actual_best_value = best_value
         self.best_solution = solution
         solution.stats.initial_value = best_value
         seq = list(range(solution.problem.n))
-        t = 90
+        t = self.t0
         last_improvement = 0
         if self.alpha is None:
             self.alpha = 0.9999
 
         for k in range(self.passes):
-            total_dists = 0.0
+            # if last_improvement < 0.000001:
+            #     return self.best_solution
+
             i = random.choice(seq)
             j = random.choice(seq)
             a, b = (i, j) if i < j else (j, i)
@@ -467,12 +473,20 @@ class NewIdeaTSPSolver(TSPSolver):
             if a == 0 and b == solution.problem.n - 1:
                 continue
 
-            # if k > 100 and improvement < 0.001:
-            #     t *= 2  # reheat
+            # if k > 100 and last_improvement < 0.001:
+            #     t *= 1.001  # reheat
             # else:
             #     t *= self.alpha  # cooldowm
             t *= self.alpha  # cooldowm
-            solution.stats.temperature.append(t)
+            #solution.stats.temperature.append(t)
+
+            if t < 1:
+                logging.getLogger('solver').debug('t = {}, temp break'.format(t))
+                break
+
+            if k - last_improvement > 10000000:
+                logging.getLogger('solver').debug('k = {}, improvement break'.format(k))
+                break
 
             solution.stats.iterations += 1
 
@@ -489,18 +503,19 @@ class NewIdeaTSPSolver(TSPSolver):
             new_value += solution.problem.dist(point_a, next_b)
 
             prob = 1 if new_value < best_value else math.exp(-(new_value - best_value) / t)
-            solution.stats.probs.append(prob)
+            #solution.stats.probs.append(prob)
 
             if prob >= random.random():
-                total_dists -= best_value - new_value
-                solution.stats.improvements_x.append(k)
-                solution.stats.improvements_y.append(new_value)
-                last_improvement = k
+                #solution.stats.improvements_x.append(k)
+                #solution.stats.improvements_y.append(new_value)
 
-                if new_value < best_value:
+                if new_value < actual_best_value:
+                    actual_best_value = new_value
                     self.best_solution = TSPSolution(input_data)
                     self.best_solution.stats = solution.stats
-                    self.best_solution.sequence = solution.sequence[:]
+                    self.best_solution.sequence = solution.sequence.copy()
+                    last_improvement = k
+                    print('k = {:10d}, t = {:4.0f}, obj = {:1.1f}'.format(k, t, actual_best_value))
 
                 best_value = new_value
                 solution.stats.final_value = best_value
