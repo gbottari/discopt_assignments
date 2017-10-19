@@ -1,6 +1,7 @@
 import math
 import random
 import logging
+import time
 from collections import namedtuple
 from typing import List, Any, Tuple
 
@@ -19,6 +20,8 @@ class Stats:
         self.iterations = 0
         self.improvements_x = []
         self.improvements_y = []
+        self.temperature = []
+        self.probs = []
         self.initial_value = 0.0
         self.final_value = 0.0
 
@@ -431,72 +434,78 @@ class DistInitializer(TSPSolver):
 
 
 class NewIdeaTSPSolver(TSPSolver):
-    def __init__(self, passes=100):
+    def __init__(self, passes=100, alpha=None):
         self.passes = passes
         self.best_solution = None
         self.target_dist = None
+        self.alpha = alpha
+
+    def __repr__(self):
+        return '<{}(alpha={:1.6f})>'.format(self.__class__.__name__, self.alpha)
 
     def stop(self) -> TSPSolution:
         return self.best_solution
 
     def _solve(self, input_data: TSPProblem):
-        solution = MultiRandomInitializer(n=3)._solve(input_data)
-        #solution = DistInitializer()._solve(input_data)
+        solution = MultiRandomInitializer(n=1)._solve(input_data)
         solution.stats = Stats()
         best_value = solution.get_value()
         self.best_solution = solution
         solution.stats.initial_value = best_value
-
         seq = list(range(solution.problem.n))
-        sample_size = min(solution.problem.n, 100)
+        t = 90
+        last_improvement = 0
+        if self.alpha is None:
+            self.alpha = 0.9999
 
-        k = 0
-        for p in range(self.passes):
+        for k in range(self.passes):
             total_dists = 0.0
-            for j in seq:
-                k += 1
+            i = random.choice(seq)
+            j = random.choice(seq)
+            a, b = (i, j) if i < j else (j, i)
 
-                point_j = solution.point(j)
-                next_j = solution.next_point(j)
-                dist_j = solution.problem.dist(point_j, next_j)
-                total_dists += dist_j
+            if a == 0 and b == solution.problem.n - 1:
+                continue
 
-                avg_dist = total_dists / (j + 1)
-                self.target_dist = avg_dist * (2 / (p + 1))
+            # if k > 100 and improvement < 0.001:
+            #     t *= 2  # reheat
+            # else:
+            #     t *= self.alpha  # cooldowm
+            t *= self.alpha  # cooldowm
+            solution.stats.temperature.append(t)
 
-                if dist_j > self.target_dist:
-                    for i in random.sample(seq, sample_size):
-                        a, b = (i, j) if i < j else (j, i)
+            solution.stats.iterations += 1
 
-                        if a == 0 and b == solution.problem.n - 1:
-                            continue
+            point_a = solution.point(a)
+            prev_a = solution.prev_point(a)
+            point_b = solution.point(b)
+            next_b = solution.next_point(b)
 
-                        k += 1
-                        solution.stats.iterations += 1
+            # check if 2-OPT works
+            new_value = best_value
+            new_value -= solution.problem.dist(prev_a, point_a)
+            new_value -= solution.problem.dist(point_b, next_b)
+            new_value += solution.problem.dist(prev_a, point_b)
+            new_value += solution.problem.dist(point_a, next_b)
 
-                        point_a = solution.point(a)
-                        prev_a = solution.prev_point(a)
-                        point_b = solution.point(b)
-                        next_b = solution.next_point(b)
+            prob = 1 if new_value < best_value else math.exp(-(new_value - best_value) / t)
+            solution.stats.probs.append(prob)
 
-                        # check if 2-OPT works
-                        new_value = best_value
-                        new_value -= solution.problem.dist(prev_a, point_a)
-                        new_value -= solution.problem.dist(point_b, next_b)
-                        new_value += solution.problem.dist(prev_a, point_b)
-                        new_value += solution.problem.dist(point_a, next_b)
+            if prob >= random.random():
+                total_dists -= best_value - new_value
+                solution.stats.improvements_x.append(k)
+                solution.stats.improvements_y.append(new_value)
+                last_improvement = k
 
-                        if new_value < best_value:
-                            total_dists -= best_value - new_value
-                            solution.stats.improvements_x.append(k)
-                            solution.stats.improvements_y.append(new_value)
-                            solution.sequence = solution.sequence[:a] + list(
-                                reversed(solution.sequence[a:b + 1])) + solution.sequence[b + 1:]
-                            best_value = new_value
-                            solution.stats.final_value = best_value
-                            self.best_solution = solution
-                            break
+                if new_value < best_value:
+                    self.best_solution = TSPSolution(input_data)
+                    self.best_solution.stats = solution.stats
+                    self.best_solution.sequence = solution.sequence[:]
 
-            #self.target_dist *= 0.90
+                best_value = new_value
+                solution.stats.final_value = best_value
 
-        return solution
+                solution.sequence = solution.sequence[:a] + list(
+                    reversed(solution.sequence[a:b + 1])) + solution.sequence[b + 1:]
+
+        return self.best_solution
