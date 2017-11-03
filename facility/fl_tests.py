@@ -12,6 +12,11 @@ def get_easy_problem():
     return get_problem_by_filename('fl_3_1')
 
 
+def get_all_problems():
+    for fn in {'fl_25_2', 'fl_50_6', 'fl_100_7', 'fl_100_1', 'fl_200_7', 'fl_500_7', 'fl_1000_2', 'fl_2000_2'}:
+        yield get_problem_by_filename(fn)
+
+
 class TestSolver(unittest.TestCase):
     def test_get_easy_problem_returns_a_valid_problem(self):
         problem = get_easy_problem()
@@ -118,4 +123,125 @@ class TestSolver(unittest.TestCase):
         solution = solver._solve(problem)
         self.assertTrue(solution.is_feasible())
 
-    
+    def test_f_capacity_relaxation(self):
+        problem = get_easy_problem()
+        partial_solution = FLSolution(problem)
+        partial_solution.selections = [None, None, 2, 2]
+        lb = get_f_capacity_relaxation(partial_solution)
+        prefs_0 = problem.customers[0].prefs[0]
+        prefs_1 = problem.customers[1].prefs[0]
+        setup_cost = sum(problem.facilities[f_i].setup_cost for f_i in frozenset([prefs_0, prefs_1, 2]))
+        dist_cost = problem.dist(problem.facilities[prefs_0].location, problem.customers[0].location) + \
+                    problem.dist(problem.facilities[prefs_1].location, problem.customers[1].location) + \
+                    problem.dist(problem.facilities[2].location, problem.customers[2].location) + \
+                    problem.dist(problem.facilities[2].location, problem.customers[3].location)
+        self.assertAlmostEqual(lb, setup_cost + dist_cost)
+
+    def test_solution2_initialization(self):
+        problem = get_easy_problem()
+        solution = FLSolution2(problem)
+        self.assertEqual(solution.selections, [None, None, None, None])
+
+    def test_solution_2_open_close_facility(self):
+        problem = get_easy_problem()
+        solution = FLSolution2(problem)
+        solution.open_facility(0)
+        self.assertAlmostEqual(solution.setup_cost, problem.facilities[0].setup_cost)
+        self.assertEqual(solution.open_fs, {0})
+        solution.close_facility(0)
+        self.assertAlmostEqual(solution.setup_cost, 0)
+        self.assertEqual(solution.open_fs, set())
+
+    def test_solution_2_bind_tests(self):
+        problem = get_easy_problem()
+        solution = FLSolution2(problem)
+        setup_cost = 0
+        dist_cost = 0
+        capacities = [f.capacity for f in problem.facilities]
+
+        # bind first customer
+        solution.bind_customer(0, 0)
+        setup_cost += problem.facilities[0].setup_cost
+        capacities[0] -= problem.customers[0].demand
+        self.assertEqual(solution.selections[0], 0)
+        self.assertAlmostEqual(solution.setup_cost, setup_cost)
+        self.assertEqual(solution.open_fs, {0})
+        self.assertEqual(solution.capacities, capacities)
+        dist_cost += problem.dist(problem.facilities[0].location, problem.customers[0].location)
+        self.assertAlmostEqual(solution.dist_cost, dist_cost)
+
+        # bind another customer to the same facility
+        solution.bind_customer(1, 0)
+        dist_cost += problem.dist(problem.facilities[0].location, problem.customers[1].location)
+        capacities[0] -= problem.customers[1].demand
+        self.assertEqual(solution.selections[1], 0)
+        self.assertAlmostEqual(solution.setup_cost, setup_cost)
+        self.assertEqual(solution.open_fs, {0})
+        self.assertEqual(solution.capacities, capacities)
+        self.assertAlmostEqual(solution.dist_cost, dist_cost)
+
+        # bind another customer to another facility
+        solution.bind_customer(2, 1)
+        setup_cost += problem.facilities[2].setup_cost
+        dist_cost += problem.dist(problem.facilities[1].location, problem.customers[2].location)
+        capacities[1] -= problem.customers[2].demand
+        self.assertEqual(solution.selections[2], 1)
+        self.assertAlmostEqual(solution.setup_cost, setup_cost)
+        self.assertEqual(solution.open_fs, {0, 1})
+        self.assertEqual(solution.capacities, capacities)
+        self.assertAlmostEqual(solution.dist_cost, dist_cost)
+
+        # move a customer to another facility leaving it non-empty
+        solution.bind_customer(0, 1)
+        dist_cost -= problem.dist(problem.facilities[0].location, problem.customers[0].location)
+        dist_cost += problem.dist(problem.facilities[1].location, problem.customers[0].location)
+        capacities[0] += problem.customers[0].demand
+        capacities[1] -= problem.customers[0].demand
+        self.assertAlmostEqual(solution.setup_cost, setup_cost)
+        self.assertEqual(solution.open_fs, {0, 1})
+        self.assertEqual(solution.capacities, capacities)
+        self.assertAlmostEqual(solution.dist_cost, dist_cost)
+
+        # move the last customer, leaving the facility empty
+        solution.bind_customer(1, 1)
+        setup_cost -= problem.facilities[0].setup_cost
+        dist_cost -= problem.dist(problem.facilities[0].location, problem.customers[1].location)
+        dist_cost += problem.dist(problem.facilities[1].location, problem.customers[1].location)
+        capacities[0] += problem.customers[1].demand
+        capacities[1] -= problem.customers[1].demand
+        self.assertAlmostEqual(solution.setup_cost, setup_cost)
+        self.assertEqual(solution.open_fs, {1})
+        self.assertEqual(solution.capacities, capacities)
+        self.assertAlmostEqual(solution.dist_cost, dist_cost)
+
+    def test_df_bnb_is_feasible(self):
+        problem = get_easy_problem()
+        solver = DFBnBSolver()
+        solution = solver._solve(problem)
+        self.assertTrue(solution.is_feasible())
+        self.assertAlmostEqual(solution.get_value(), 2545.771137048475)
+
+    @unittest.skip('')
+    def test_df_bnb_runs_fast(self):
+        problem = get_problem_by_filename('fl_16_1')
+        solver = DFBnBSolver()
+        solution = solver._solve(problem)
+        self.assertTrue(solution.is_feasible())
+
+    def test_greedy_preference(self):
+        problem = get_easy_problem()
+        solver = GreedyPrefSolver()
+        solution = solver._solve(problem)
+        self.assertTrue(solution.is_feasible())
+
+    @unittest.skip('very slow')
+    def test_greedy_contest(self):
+        solvers = [TrivialFLSolver(), GreedyPrefSolver()]
+        results = [0, 0]
+        for i in range(len(solvers)):
+            for problem in get_all_problems():
+                solution = solvers[i]._solve(problem)
+                self.assertTrue(solution.is_feasible())
+                results[i] += solution.get_value()
+
+        self.assertLessEqual(results[1], results[0])
