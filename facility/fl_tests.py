@@ -157,39 +157,46 @@ class TestSolver(unittest.TestCase):
         solution = FLSolution2(problem)
         setup_cost = 0
         dist_cost = 0
+        demand_covered = 0
         capacities = [f.capacity for f in problem.facilities]
 
         # bind first customer
         solution.bind_customer(0, 0)
         setup_cost += problem.facilities[0].setup_cost
         capacities[0] -= problem.customers[0].demand
+        demand_covered += problem.customers[0].demand
+        dist_cost += problem.dist(problem.facilities[0].location, problem.customers[0].location)
         self.assertEqual(solution.selections[0], 0)
         self.assertAlmostEqual(solution.setup_cost, setup_cost)
         self.assertEqual(solution.open_fs, {0})
         self.assertEqual(solution.capacities, capacities)
-        dist_cost += problem.dist(problem.facilities[0].location, problem.customers[0].location)
         self.assertAlmostEqual(solution.dist_cost, dist_cost)
+        self.assertEqual(solution.demand_covered, demand_covered)
 
         # bind another customer to the same facility
         solution.bind_customer(1, 0)
         dist_cost += problem.dist(problem.facilities[0].location, problem.customers[1].location)
         capacities[0] -= problem.customers[1].demand
+        demand_covered += problem.customers[1].demand
         self.assertEqual(solution.selections[1], 0)
         self.assertAlmostEqual(solution.setup_cost, setup_cost)
         self.assertEqual(solution.open_fs, {0})
         self.assertEqual(solution.capacities, capacities)
         self.assertAlmostEqual(solution.dist_cost, dist_cost)
+        self.assertEqual(solution.demand_covered, demand_covered)
 
         # bind another customer to another facility
         solution.bind_customer(2, 1)
         setup_cost += problem.facilities[2].setup_cost
         dist_cost += problem.dist(problem.facilities[1].location, problem.customers[2].location)
         capacities[1] -= problem.customers[2].demand
+        demand_covered += problem.customers[2].demand
         self.assertEqual(solution.selections[2], 1)
         self.assertAlmostEqual(solution.setup_cost, setup_cost)
         self.assertEqual(solution.open_fs, {0, 1})
         self.assertEqual(solution.capacities, capacities)
         self.assertAlmostEqual(solution.dist_cost, dist_cost)
+        self.assertEqual(solution.demand_covered, demand_covered)
 
         # move a customer to another facility leaving it non-empty
         solution.bind_customer(0, 1)
@@ -201,6 +208,7 @@ class TestSolver(unittest.TestCase):
         self.assertEqual(solution.open_fs, {0, 1})
         self.assertEqual(solution.capacities, capacities)
         self.assertAlmostEqual(solution.dist_cost, dist_cost)
+        self.assertEqual(solution.demand_covered, demand_covered)
 
         # move the last customer, leaving the facility empty
         solution.bind_customer(1, 1)
@@ -213,6 +221,7 @@ class TestSolver(unittest.TestCase):
         self.assertEqual(solution.open_fs, {1})
         self.assertEqual(solution.capacities, capacities)
         self.assertAlmostEqual(solution.dist_cost, dist_cost)
+        self.assertEqual(solution.demand_covered, demand_covered)
 
     def test_df_bnb_is_feasible(self):
         problem = get_easy_problem()
@@ -221,7 +230,7 @@ class TestSolver(unittest.TestCase):
         self.assertTrue(solution.is_feasible())
         self.assertAlmostEqual(solution.get_value(), 2545.771137048475)
 
-    @unittest.skip('')
+    #@unittest.skip('')
     def test_df_bnb_runs_fast(self):
         problem = get_problem_by_filename('fl_16_1')
         solver = DFBnBSolver()

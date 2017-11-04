@@ -1,8 +1,11 @@
 import math
 import random
-from tools.solver_tools import Solution, Solver
+import sys
+from tools.solver_tools import Solution, Solver, MultiSolver
 from collections import namedtuple
 from typing import Optional
+
+sys.setrecursionlimit(2000)
 
 Point = namedtuple("Point", ['x', 'y'])
 Facility = namedtuple("Facility", ['index', 'setup_cost', 'capacity', 'location'])
@@ -73,6 +76,9 @@ class FLSolution2(FLSolution):
         self.open_fs = set()  # do we need this?
         self.customer_count = [0 for _ in range(len(problem.facilities))]
         self.capacities = [f.capacity for f in problem.facilities]
+        self.total_demand = sum(c.demand for c in problem.customers)
+        self.total_capacity = sum(self.capacities)
+        self.demand_covered = 0
 
     def copy(self):
         inst = FLSolution2(self.problem)
@@ -82,6 +88,9 @@ class FLSolution2(FLSolution):
         inst.open_fs = self.open_fs.copy()
         inst.customer_count = self.customer_count.copy()
         inst.capacities = self.capacities.copy()
+        inst.total_demand = self.total_demand
+        inst.total_capacity = self.total_capacity
+        inst.demand_covered = self.demand_covered
         return inst
 
     def open_facility(self, f_i):
@@ -104,6 +113,8 @@ class FLSolution2(FLSolution):
             self.capacities[old_f_i] += customer.demand
             if self.customer_count[old_f_i] == 0:
                 self.close_facility(old_f_i)
+        else:
+            self.demand_covered += customer.demand
 
         if f_i is not None:
             if self.customer_count[f_i] == 0:
@@ -111,6 +122,8 @@ class FLSolution2(FLSolution):
             self.customer_count[f_i] += 1
             self.capacities[f_i] -= customer.demand
             self.dist_cost += self.problem.customers[c_i].dists[f_i]
+        else:
+            self.demand_covered -= customer.demand
 
         self.selections[c_i] = f_i
 
@@ -174,6 +187,24 @@ class GreedyPrefSolver(FLSolver):
         return solution
 
 
+class GreedyDistSolver(FLSolver):
+    def _solve(self, problem: FLProblem) -> FLSolution2:
+        solution = FLSolution2(problem)
+
+        for customer in problem.customers:
+            prefs = sorted(solution.problem.facilities, reverse=False,
+                           key=lambda f: (f.setup_cost if f not in solution.open_fs else 0) + customer.dists[f.index])
+            for f in prefs:
+                f_i = f.index
+                if solution.capacities[f_i] >= customer.demand:
+                    solution.bind_customer(customer.index, f_i)
+                    break
+            if solution.selections[customer.index] is None:
+                raise Exception()
+
+        return solution
+
+
 def get_f_capacity_relaxation(partial_solution: FLSolution):
     dist_cost = 0
     problem = partial_solution.problem
@@ -188,25 +219,44 @@ def get_f_capacity_relaxation(partial_solution: FLSolution):
 
 
 def get_f_capacity_relaxation2(solution: FLSolution2):
-    setup_cost = solution.setup_cost
     dist_cost = solution.dist_cost
-
     problem = solution.problem
-    open_fs = solution.open_fs.copy()
+
     for c_i in range(len(solution.selections)):
         if solution.selections[c_i] is not None:
             continue
         customer = problem.customers[c_i]
         for f_i in customer.prefs:
-            if solution.capacities[f_i] < customer.demand:
-                continue
-            dist_cost += problem.customers[c_i].dists[f_i]
-            if f_i not in open_fs:
-                open_fs.add(f_i)
-                setup_cost += problem.facilities[f_i].setup_cost
-            break
+            if solution.capacities[f_i] >= customer.demand:
+                dist_cost += problem.customers[c_i].dists[f_i]
+                break
 
-    return setup_cost + dist_cost
+    return dist_cost
+
+
+def get_remaining_setup_cost_estimation(solution: FLSolution2):
+    setup_cost = solution.setup_cost
+    problem = solution.problem
+    remaining_demand = solution.total_demand - solution.demand_covered
+    current_capacity = sum(solution.capacities)
+
+    if current_capacity < remaining_demand:
+        remaining_capacity = remaining_demand
+        # order the facilities by capacity / setup_cost and estimates based on that
+        for f in sorted((f for f in problem.facilities if f not in solution.open_fs), reverse=True,
+                        key=lambda f: f.capacity / max(f.setup_cost, 0.001)):
+            if f.capacity > remaining_capacity:
+                setup_cost += f.setup_cost * remaining_capacity / f.capacity
+                break
+            else:
+                setup_cost += f.capacity
+                remaining_capacity -= f.capacity
+
+    return setup_cost
+
+
+def get_relaxation2(solution: FLSolution2):
+    return get_remaining_setup_cost_estimation(solution) + get_f_capacity_relaxation2(solution)
 
 
 class DFBnBSolver(FLSolver):
@@ -215,49 +265,60 @@ class DFBnBSolver(FLSolver):
         self.best_solution = None
         self.best_value = None
         self._stop = False
+        self.customers = None
 
     def stop(self):
         self._stop = True
+        return self.best_solution
 
-    def _bnb(self, solution, c_i) -> None:
+    def _bnb(self, solution, index) -> None:
         if self._stop:
             return
 
-        if c_i == len(solution.problem.customers):
+        if index == len(solution.problem.customers):
             # check if the new solution is better:
             if solution.is_better(self.best_solution):
                 self.best_solution = solution.copy()
                 self.best_value = self.best_solution.get_value()
             return
 
+        c_i = self.customers[index].index
         c = solution.problem.customers[c_i]
         best_value = self.best_value
-        for f in solution.problem.facilities:
+
+        # Try the best combination of distance and setup_cost
+        prefs = sorted(solution.problem.facilities, reverse=False,
+                       key=lambda f: (f.setup_cost if f not in solution.open_fs else 0) + c.dists[f.index])
+
+        for f in prefs:
+            f_i = f.index
             if best_value > self.best_value:
                 # this means that a new solution was found and maybe we can discard this branch now
-                lb = get_f_capacity_relaxation2(solution)
+                lb = get_relaxation2(solution)
                 if lb > self.best_value:
                     return
                 best_value = self.best_value
 
-            if solution.capacities[f.index] < c.demand:  # can't use this factory
+            if solution.capacities[f_i] < c.demand:  # can't use this factory
                 continue
 
-            solution.bind_customer(c_i, f.index)
+            solution.bind_customer(c_i, f_i)
 
-            lb = get_f_capacity_relaxation2(solution)
+            lb = get_relaxation2(solution)
             if lb > self.best_value:  # this binding is not optimal
                 solution.bind_customer(c_i, None)
                 continue
 
             # go to the next customer
-            self._bnb(solution, c_i + 1)
+            self._bnb(solution, index + 1)
             solution.bind_customer(c_i, None)
 
     def _solve(self, problem: FLProblem) -> FLSolution2:
-        self.best_solution = GreedyPrefSolver()._solve(problem)
+        self.customers = sorted(problem.customers, key=lambda c: min(c.dists), reverse=False)
+        self.best_solution = MultiSolver(solvers=[GreedyPrefSolver(), GreedyDistSolver()])._solve(problem)
         self.best_value = self.best_solution.get_value()
         solution = FLSolution2(problem)
-        self._bnb(solution, c_i=0)
+        self._bnb(solution, index=0)
+        self.best_solution.optimal = True
         return self.best_solution
 
