@@ -2,7 +2,7 @@ import math
 import random
 import logging
 from collections import namedtuple
-from typing import Optional
+from typing import Optional, List
 
 import sys
 sys.path.append('..')
@@ -87,7 +87,7 @@ class FLSolution2(FLSolution):
         super().__init__(problem)
         self.setup_cost = 0.0
         self.dist_cost = 0.0
-        self.selections = [None for _ in range(len(problem.customers))]
+        self.selections: List[Optional[int]] = [None for _ in range(len(problem.customers))]
         self.open_fs = set()  # do we need this?
         self.customer_count = [0 for _ in range(len(problem.facilities))]
         self.capacities = [f.capacity for f in problem.facilities]
@@ -376,6 +376,7 @@ class SASolver(FLSolver):
         solution = RandSolver()._solve(problem) #MultiSolver(solvers=[GreedyPrefSolver(), GreedyDistSolver()])._solve(problem)
         solution_value = solution.get_value()
         solution.stats = Stats()
+        solution.stats.undos = ([], [])
         self.best_solution = solution.copy()
         best_value = solution_value
         t = self.t0
@@ -384,18 +385,44 @@ class SASolver(FLSolver):
             solution.stats.final_value = best_value
 
         while not self._stop and (k - last_improvement < self.improvement_limit):
-            # random swap
-            c = random.choice(problem.customers)
-            f = random.choice(problem.facilities)
+            move_p = random.random()
 
-            # Check capacity first
-            if solution.capacities[f.index] < c.demand:
-                continue
+            if move_p < 0.44:
+                move_code = 0
+            else:
+                move_code = 1
 
-            prev_f_i = solution.selections[c.index]
-            solution.bind_customer(c.index, f.index)
+            if move_code == 0:
+                # random bind
+                c = random.choice(problem.customers)
+                f_i = random.choice(problem.facilities).index
+
+                # Check capacity first
+                if solution.capacities[f_i] < c.demand:
+                    continue
+
+                prev_f_i = solution.selections[c.index]
+                solution.bind_customer(c.index, f_i)
+                undo_params = (c.index, prev_f_i)
+            elif move_code == 1:
+                c_0 = random.choice(problem.customers).index
+                c_1 = random.choice(problem.customers).index
+                if c_0 == c_1:
+                    continue
+
+                c_0_f_i = solution.selections[c_0]
+                c_1_f_i = solution.selections[c_1]
+
+                # check if possible
+                if solution.capacities[c_0_f_i] - problem.customers[c_0].demand < problem.customers[c_1].demand or \
+                   solution.capacities[c_1_f_i] - problem.customers[c_1].demand < problem.customers[c_0].demand:
+                    continue
+
+                solution.bind_customer(c_0, c_1_f_i)
+                solution.bind_customer(c_1, c_0_f_i)
+                undo_params = (c_0, c_1, c_0_f_i, c_1_f_i)
+
             new_value = solution.get_value()
-
             prob = min(1 if round(solution_value - new_value, 1) > 0.0 else math.exp(-(new_value - solution_value) / t), 1)
 
             if prob >= random.random():
@@ -414,9 +441,16 @@ class SASolver(FLSolver):
                         solution.stats.final_value = best_value
 
             else:  # undo move
-                solution.bind_customer(c.index, prev_f_i)
+                if self.debug:
+                    solution.stats.undos[move_code].append(k)
+                if move_code == 0:
+                    solution.bind_customer(*undo_params)
+                elif move_code == 1:
+                    c_0, c_1, c_0_f_i, c_1_f_i = undo_params
+                    solution.bind_customer(c_0, c_0_f_i)
+                    solution.bind_customer(c_1, c_1_f_i)
 
-            t = max(t * self.alpha, 1000)
+            t = max(t * self.alpha, 0.1)
             k += 1
 
             if self.debug:
