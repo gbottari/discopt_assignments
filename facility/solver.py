@@ -10,7 +10,7 @@ from facility.solver_tools import *
 
 def solve_it(input_data):
     # Modify this code to run your optimization algorithm
-    solver = MultiSolver(timeout=60, solvers=[DFBnBSolver()])
+    solver = MultiSolver(timeout=60, solvers=[DFBnBSolver(), SASolver()])
     mgr = SolverManager()
     return mgr.solve(input_data, solver)
 

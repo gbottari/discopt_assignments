@@ -123,6 +123,12 @@ class TestSolver(unittest.TestCase):
         solution = solver._solve(problem)
         self.assertTrue(solution.is_feasible())
 
+    def test_rand_solver_returns_feasible(self):
+        problem = get_easy_problem()
+        solver = RandSolver()
+        solution = solver._solve(problem)
+        self.assertTrue(solution.is_feasible())
+
     def test_f_capacity_relaxation(self):
         problem = get_easy_problem()
         partial_solution = FLSolution(problem)
@@ -230,10 +236,16 @@ class TestSolver(unittest.TestCase):
         self.assertTrue(solution.is_feasible())
         self.assertAlmostEqual(solution.get_value(), 2545.771137048475)
 
-    #@unittest.skip('')
-    def test_df_bnb_runs_fast(self):
-        problem = get_problem_by_filename('fl_16_1')
+    @unittest.skip('')
+    def test_bnb_runs_fast(self):
+        problem = get_problem_by_filename('fl_50_6')
         solver = DFBnBSolver()
+        solution = solver._solve(problem)
+        self.assertTrue(solution.is_feasible())
+
+    def test_sa_runs_fast(self):
+        problem = get_problem_by_filename('fl_50_6')
+        solver = SASolver(alpha=0.999995, t0=10000, improvement_limit=100000)
         solution = solver._solve(problem)
         self.assertTrue(solution.is_feasible())
 

@@ -1,9 +1,13 @@
 import math
 import random
-import sys
-from tools.solver_tools import Solution, Solver, MultiSolver
+import logging
 from collections import namedtuple
 from typing import Optional
+
+import sys
+sys.path.append('..')
+
+from tools.solver_tools import Solution, Solver, MultiSolver
 
 sys.setrecursionlimit(2000)
 
@@ -26,6 +30,17 @@ class FLProblem:
         else:
             dist = self.dist_cache[key]
         return dist
+
+
+class Stats:
+    def __init__(self):
+        self.iterations = 0
+        self.improvements_x = []
+        self.improvements_y = []
+        self.temperature = []
+        self.probs = []
+        self.initial_value = 0.0
+        self.final_value = 0.0
 
 
 class FLSolution(Solution):
@@ -80,6 +95,9 @@ class FLSolution2(FLSolution):
         self.total_capacity = sum(self.capacities)
         self.demand_covered = 0
 
+    def get_value(self):
+        return self.setup_cost + self.dist_cost
+
     def copy(self):
         inst = FLSolution2(self.problem)
         inst.setup_cost = self.setup_cost
@@ -91,6 +109,7 @@ class FLSolution2(FLSolution):
         inst.total_demand = self.total_demand
         inst.total_capacity = self.total_capacity
         inst.demand_covered = self.demand_covered
+        inst.stats = self.stats
         return inst
 
     def open_facility(self, f_i):
@@ -108,7 +127,8 @@ class FLSolution2(FLSolution):
         customer = self.problem.customers[c_i]
 
         if old_f_i is not None:  # we need to reassign the customer
-            self.dist_cost -= self.problem.customers[c_i].dists[old_f_i]
+            old_dist = self.problem.customers[c_i].dists[old_f_i]
+            self.dist_cost -= old_dist
             self.customer_count[old_f_i] -= 1
             self.capacities[old_f_i] += customer.demand
             if self.customer_count[old_f_i] == 0:
@@ -205,6 +225,19 @@ class GreedyDistSolver(FLSolver):
         return solution
 
 
+class RandSolver(FLSolver):
+    def _solve(self, problem: FLProblem) -> FLSolution2:
+        solution = FLSolution2(problem)
+
+        while solution.demand_covered < solution.total_demand:
+            customer = random.choice(problem.customers)
+            facility = random.choice(problem.facilities)
+            if solution.capacities[facility.index] >= customer.demand:
+                solution.bind_customer(customer.index, facility.index)
+
+        return solution
+
+
 def get_f_capacity_relaxation(partial_solution: FLSolution):
     dist_cost = 0
     problem = partial_solution.problem
@@ -238,7 +271,7 @@ def get_remaining_setup_cost_estimation(solution: FLSolution2):
     setup_cost = solution.setup_cost
     problem = solution.problem
     remaining_demand = solution.total_demand - solution.demand_covered
-    current_capacity = sum(solution.capacities)
+    current_capacity = sum(solution.capacities[f_i] for f_i in range(len(problem.facilities)) if f_i in solution.open_fs)
 
     if current_capacity < remaining_demand:
         remaining_capacity = remaining_demand
@@ -314,11 +347,82 @@ class DFBnBSolver(FLSolver):
             solution.bind_customer(c_i, None)
 
     def _solve(self, problem: FLProblem) -> FLSolution2:
-        self.customers = sorted(problem.customers, key=lambda c: min(c.dists), reverse=False)
+        self.customers = sorted(problem.customers, key=lambda c: c.demand, reverse=True)
         self.best_solution = MultiSolver(solvers=[GreedyPrefSolver(), GreedyDistSolver()])._solve(problem)
         self.best_value = self.best_solution.get_value()
         solution = FLSolution2(problem)
         self._bnb(solution, index=0)
-        self.best_solution.optimal = True
+        #self.best_solution.optimal = True  # I think that the relaxation can't be trusted
         return self.best_solution
 
+
+class SASolver(FLSolver):
+    def __init__(self, t0=100000000.0, alpha=0.999, improvement_limit=100000, debug=False):
+        super().__init__()
+        self.t0 = t0
+        self.alpha = alpha
+        self._stop = False
+        self.best_solution = None
+        self.debug = debug
+        self.improvement_limit = improvement_limit
+
+    def stop(self):
+        self._stop = True
+        return self.best_solution
+
+    def _solve(self, problem: FLProblem):
+        k = 0
+        last_improvement = 0
+        solution = RandSolver()._solve(problem) #MultiSolver(solvers=[GreedyPrefSolver(), GreedyDistSolver()])._solve(problem)
+        solution_value = solution.get_value()
+        solution.stats = Stats()
+        self.best_solution = solution.copy()
+        best_value = solution_value
+        t = self.t0
+        logger = logging.getLogger('solver')
+        if self.debug:
+            solution.stats.final_value = best_value
+
+        while not self._stop and (k - last_improvement < self.improvement_limit):
+            # random swap
+            c = random.choice(problem.customers)
+            f = random.choice(problem.facilities)
+
+            # Check capacity first
+            if solution.capacities[f.index] < c.demand:
+                continue
+
+            prev_f_i = solution.selections[c.index]
+            solution.bind_customer(c.index, f.index)
+            new_value = solution.get_value()
+
+            prob = min(1 if round(solution_value - new_value, 1) > 0.0 else math.exp(-(new_value - solution_value) / t), 1)
+
+            if prob >= random.random():
+                if self.debug:
+                    solution.stats.improvements_x.append(k)
+                    solution.stats.improvements_y.append(new_value)
+
+                # accept move
+                solution_value = new_value
+
+                if round(best_value - solution_value, 1) > 0.0:
+                    self.best_solution = solution.copy()
+                    best_value = new_value
+                    last_improvement = k
+                    if self.debug:
+                        solution.stats.final_value = best_value
+
+            else:  # undo move
+                solution.bind_customer(c.index, prev_f_i)
+
+            t = max(t * self.alpha, 1000)
+            k += 1
+
+            if self.debug:
+                solution.stats.probs.append(prob)
+                solution.stats.temperature.append(t)
+
+        logger.debug('alpha = {}, t0 = {}, k = {}, t = {}, k - last_improvement = {}'.format(
+            self.alpha, self.t0, k, t, k - last_improvement))
+        return self.best_solution
