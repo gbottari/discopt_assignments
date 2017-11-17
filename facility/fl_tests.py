@@ -236,13 +236,14 @@ class TestSolver(unittest.TestCase):
         self.assertTrue(solution.is_feasible())
         self.assertAlmostEqual(solution.get_value(), 2545.771137048475)
 
-    @unittest.skip('')
+    @unittest.skip('it does not run fast')
     def test_bnb_runs_fast(self):
         problem = get_problem_by_filename('fl_50_6')
         solver = DFBnBSolver()
         solution = solver._solve(problem)
         self.assertTrue(solution.is_feasible())
 
+    @unittest.skip('it does not run fast')
     def test_sa_runs_fast(self):
         problem = get_problem_by_filename('fl_50_6')
         solver = SASolver(alpha=0.999995, t0=10000, improvement_limit=100000)
@@ -266,3 +267,11 @@ class TestSolver(unittest.TestCase):
                 results[i] += solution.get_value()
 
         self.assertLessEqual(results[1], results[0])
+
+    def test_mip_solver(self):
+        problem = get_easy_problem()
+        solver = FLMipSolver()
+        solution = solver._solve(problem)
+        self.assertTrue(solution.is_feasible())
+        #self.assertTrue(solution.is_optimal())
+

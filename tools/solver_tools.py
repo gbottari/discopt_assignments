@@ -121,6 +121,9 @@ class MultiSolver(Solver):
             if solution is None:
                 logger.debug('No solution found with {}'.format(solver))
                 continue
+            if not solution.is_feasible():
+                logger.debug('Solution found with {} is not feasible!'.format(solver))
+                continue
 
             logger.debug('{} solution value is {}'.format(solver, solution.get_value()))
 

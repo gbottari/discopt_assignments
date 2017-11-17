@@ -1,8 +1,11 @@
 import math
+import time
 import random
+import psutil
 import logging
 from collections import namedtuple
 from typing import Optional, List
+from pyscipopt import Model, quicksum, SCIP_PARAMEMPHASIS
 
 import sys
 sys.path.append('..')
@@ -47,7 +50,7 @@ class FLSolution(Solution):
     def __init__(self, problem):
         super().__init__()
         self.problem = problem
-        self.selections = []
+        self.selections = []  # the facility index for each customer
         self.optimal = False
 
     def get_value(self):
@@ -460,3 +463,77 @@ class SASolver(FLSolver):
         logger.debug('alpha = {}, t0 = {}, k = {}, t = {}, k - last_improvement = {}'.format(
             self.alpha, self.t0, k, t, k - last_improvement))
         return self.best_solution
+
+
+class FLMipSolver(FLSolver):
+    def __init__(self):
+        super().__init__()
+        self.timeout = None
+        self.solution = None
+        self._stop = False
+        total_mem_mb = psutil.virtual_memory().total / 1024 ** 2
+        self.max_mem_mb = max(total_mem_mb - 1024, 1024)
+        self.logger = logging.getLogger('solver')
+
+    def stop(self):
+        self._stop = True
+        time.sleep(3)  # give it a little time for the solution to appear
+        return self.solution
+
+    def set_timeout(self, timeout: int):
+        self.timeout = timeout
+
+    def _solve(self, problem: FLProblem):
+        vars = len(problem.customers) * len(problem.facilities)
+        self.logger.debug('{} vars estimated'.format(vars))
+        if vars > 1000 * 1000:
+            raise Exception('Problem is too big for me!')
+
+        model = Model('facility')
+        model.setRealParam("limits/memory", self.max_mem_mb)
+        model.setEmphasis(SCIP_PARAMEMPHASIS.FEASIBILITY)  # detect feasibility fast
+        if self.timeout:
+            model.setRealParam("limits/time", self.timeout)
+
+        x = {}  # facility f is open or closed
+        y = {}  # facility f serves customer c
+
+        for facility in problem.facilities:
+            x[facility.index] = model.addVar(name='x_{}'.format(facility.index), vtype='B')
+
+            for customer in problem.customers:
+                y[facility.index, customer.index] = model.addVar(name='y_{},{}'.format(facility.index, customer.index),
+                                                                 vtype='B')
+
+        # a facility can serve a customer only if it is open
+        for facility in problem.facilities:
+            for customer in problem.customers:
+                model.addCons(y[facility.index, customer.index] <= x[facility.index])
+
+        # a customer must be served by exactly one facility
+        for customer in problem.customers:
+            model.addCons(quicksum(y[facility.index, customer.index] for facility in problem.facilities) == 1)
+
+        # the total demand must not exceed the facility capacity
+        for facility in problem.facilities:
+            f = facility.index
+            model.addCons(quicksum(y[f, customer.index] * customer.demand for customer in problem.customers) <=
+                          facility.capacity)
+
+        model.setObjective(quicksum(x[facility.index] * facility.setup_cost for facility in problem.facilities) +
+                           quicksum(
+                               y[facility.index, customer.index] * problem.dist(facility.location, customer.location)
+                               for facility in problem.facilities for customer in problem.customers), "minimize")
+
+        model.optimize()
+
+        self.solution = FLSolution(problem)
+        self.solution.selections = [0] * len(problem.customers)
+        for c in range(len(problem.customers)):
+            for f in range(len(problem.facilities)):
+                if model.getVal(y[f, c]) == 1:
+                    self.solution.selections[c] = f
+                    break
+
+        #self.solution.optimal = not self._stop
+        return self.solution

@@ -9,9 +9,10 @@ from facility.solver_tools import *
 
 
 def solve_it(input_data):
-    # Modify this code to run your optimization algorithm
-    solver = MultiSolver(timeout=5 * 60, solvers=[GreedyDistSolver(), GreedyPrefSolver(), TrivialFLSolver(), RandSolver(),
-        SASolver(alpha=0.999995, t0=10000, improvement_limit=1000000)])
+    # SASolver(alpha=0.999995, t0=10000, improvement_limit=1000000)
+    solver = MultiSolver(timeout=3 * 60, solvers=[GreedyDistSolver(), GreedyPrefSolver(), TrivialFLSolver(), RandSolver(),
+        FLMipSolver(), SASolver(alpha=0.999995, t0=10000, improvement_limit=1000000)])
+    #solver = MultiSolver(timeout=10, solvers=[FLMipSolver()])
     mgr = SolverManager()
     return mgr.solve(input_data, solver)
 
