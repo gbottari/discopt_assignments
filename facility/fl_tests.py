@@ -80,25 +80,25 @@ class TestSolver(unittest.TestCase):
     def test_get_value(self):
         problem = get_easy_problem()
         solution = FLSolution(problem)
-        solution.selections = [1, 1, 0, 2]
+        solution.selections = {0: 1, 1: 1, 2: 0, 3: 2}
         self.assertAlmostEqual(solution.get_value(), 2550.013, places=2)
 
     def test_feasible_solution_is_detected(self):
         problem = get_easy_problem()
         solution = FLSolution(problem)
-        solution.selections = [1, 1, 0, 2]
+        solution.selections = {0: 1, 1: 1, 2: 0, 3: 2}
         self.assertTrue(solution.is_feasible())
 
     def test_infeasible_solution_is_detected(self):
         problem = get_easy_problem()
         solution = FLSolution(problem)
-        solution.selections = [1, 1, 1, 1]
+        solution.selections = {0: 1, 1: 1, 2: 1, 3: 1}
         self.assertFalse(solution.is_feasible())
 
     def test_serialize(self):
         problem = get_easy_problem()
         solution = FLSolution(problem)
-        solution.selections = [1, 1, 0, 2]
+        solution.selections = {0: 1, 1: 1, 2: 0, 3: 2}
         serialized = solution.serialize()
         expected = "{} {}\n{} {} {} {}".format(2550.013, 0, 1, 1, 0, 2)
         self.assertEqual(serialized, expected)
@@ -107,8 +107,8 @@ class TestSolver(unittest.TestCase):
         problem = get_easy_problem()
         solution_1 = FLSolution(problem)
         solution_2 = FLSolution(problem)
-        solution_1.selections = [1, 1, 0, 2]
-        solution_2.selections = [2, 2, 2, 2]
+        solution_1.selections = {0: 1, 1: 1, 2: 0, 3: 2}
+        solution_2.selections = {0: 2, 1: 2, 2: 2, 3: 2}
         self.assertLess(solution_1.get_value(), solution_2.get_value())
         self.assertTrue(solution_1.is_better(solution_2))
         self.assertFalse(solution_2.is_better(solution_1))
@@ -146,7 +146,7 @@ class TestSolver(unittest.TestCase):
     def test_solution2_initialization(self):
         problem = get_easy_problem()
         solution = FLSolution2(problem)
-        self.assertEqual(solution.selections, [None, None, None, None])
+        self.assertEqual(list(solution.selections.values()), [None, None, None, None])
 
     def test_solution_2_open_close_facility(self):
         problem = get_easy_problem()
@@ -164,7 +164,7 @@ class TestSolver(unittest.TestCase):
         setup_cost = 0
         dist_cost = 0
         demand_covered = 0
-        capacities = [f.capacity for f in problem.facilities]
+        capacities = [f.capacity for f in problem.facilities.values()]
 
         # bind first customer
         solution.bind_customer(0, 0)
@@ -175,7 +175,7 @@ class TestSolver(unittest.TestCase):
         self.assertEqual(solution.selections[0], 0)
         self.assertAlmostEqual(solution.setup_cost, setup_cost)
         self.assertEqual(solution.open_fs, {0})
-        self.assertEqual(solution.capacities, capacities)
+        self.assertEqual(list(solution.capacities.values()), capacities)
         self.assertAlmostEqual(solution.dist_cost, dist_cost)
         self.assertEqual(solution.demand_covered, demand_covered)
 
@@ -187,7 +187,7 @@ class TestSolver(unittest.TestCase):
         self.assertEqual(solution.selections[1], 0)
         self.assertAlmostEqual(solution.setup_cost, setup_cost)
         self.assertEqual(solution.open_fs, {0})
-        self.assertEqual(solution.capacities, capacities)
+        self.assertEqual(list(solution.capacities.values()), capacities)
         self.assertAlmostEqual(solution.dist_cost, dist_cost)
         self.assertEqual(solution.demand_covered, demand_covered)
 
@@ -200,7 +200,7 @@ class TestSolver(unittest.TestCase):
         self.assertEqual(solution.selections[2], 1)
         self.assertAlmostEqual(solution.setup_cost, setup_cost)
         self.assertEqual(solution.open_fs, {0, 1})
-        self.assertEqual(solution.capacities, capacities)
+        self.assertEqual(list(solution.capacities.values()), capacities)
         self.assertAlmostEqual(solution.dist_cost, dist_cost)
         self.assertEqual(solution.demand_covered, demand_covered)
 
@@ -212,7 +212,7 @@ class TestSolver(unittest.TestCase):
         capacities[1] -= problem.customers[0].demand
         self.assertAlmostEqual(solution.setup_cost, setup_cost)
         self.assertEqual(solution.open_fs, {0, 1})
-        self.assertEqual(solution.capacities, capacities)
+        self.assertEqual(list(solution.capacities.values()), capacities)
         self.assertAlmostEqual(solution.dist_cost, dist_cost)
         self.assertEqual(solution.demand_covered, demand_covered)
 
@@ -225,7 +225,7 @@ class TestSolver(unittest.TestCase):
         capacities[1] -= problem.customers[1].demand
         self.assertAlmostEqual(solution.setup_cost, setup_cost)
         self.assertEqual(solution.open_fs, {1})
-        self.assertEqual(solution.capacities, capacities)
+        self.assertEqual(list(solution.capacities.values()), capacities)
         self.assertAlmostEqual(solution.dist_cost, dist_cost)
         self.assertEqual(solution.demand_covered, demand_covered)
 
@@ -270,8 +270,55 @@ class TestSolver(unittest.TestCase):
 
     def test_mip_solver(self):
         problem = get_easy_problem()
-        solver = FLMipSolver()
+        solver = FLMipSolver(hide_output=True)
         solution = solver._solve(problem)
         self.assertTrue(solution.is_feasible())
         #self.assertTrue(solution.is_optimal())
 
+    def test_split_problem(self):
+        problem = get_problem_by_filename('fl_1000_2')
+        split_problems = split_problem(problem)
+
+        merged_problem = merge_problems(split_problems)
+        self.assertTrue(frozenset(merged_problem.customers.keys()) ==
+                        frozenset(problem.customers.keys()))
+        self.assertTrue(frozenset(merged_problem.facilities.keys()) ==
+                        frozenset(problem.facilities.keys()))
+
+    def test_split_solution(self):
+        problem = get_problem_by_filename('fl_1000_2')
+        split_problems = split_problem(problem)
+
+        solver = TrivialFLSolver()
+        solutions = []
+        for p in split_problems:
+            solution = solver._solve(p)
+            self.assertTrue(solution.is_feasible())
+            solutions.append(solution)
+
+        merged_solution = merge_solutions(solutions)
+        self.assertTrue(merged_solution.is_feasible())
+        self.assertEqual(frozenset(merged_solution.problem.facilities.keys()), frozenset(problem.facilities.keys()))
+        self.assertEqual(frozenset(merged_solution.problem.customers.keys()), frozenset(problem.customers.keys()))
+
+    def test_splitter_works(self):
+        problem = get_problem_by_filename('fl_50_6')
+
+        solver = FLMipSplitter(hide_output=True)
+        solver.timeout = 100
+        solver.max_vars = 5000
+        solution = solver._solve(problem)
+        self.assertTrue(solution.is_feasible())
+        self.assertEqual(frozenset(solution.problem.facilities.keys()), frozenset(problem.facilities.keys()))
+        self.assertEqual(frozenset(solution.problem.customers.keys()), frozenset(problem.customers.keys()))
+
+    def test_bug(self):
+        problem = get_problem_by_filename('fl_200_7')
+
+        solver = FLMipSplitter(hide_output=True)
+        solver.timeout = 100
+        solver.max_vars = 5000
+        solution = solver._solve(problem)
+        self.assertTrue(solution.is_feasible())
+        self.assertEqual(len(problem.customers), 800)
+        self.assertEqual(len(solution.selections), 800)

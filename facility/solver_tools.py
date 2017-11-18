@@ -4,7 +4,8 @@ import random
 import psutil
 import logging
 from collections import namedtuple
-from typing import Optional, List
+from itertools import chain
+from typing import Optional, List, Sequence, Iterable
 from pyscipopt import Model, quicksum, SCIP_PARAMEMPHASIS
 
 import sys
@@ -17,6 +18,76 @@ sys.setrecursionlimit(2000)
 Point = namedtuple("Point", ['x', 'y'])
 Facility = namedtuple("Facility", ['index', 'setup_cost', 'capacity', 'location'])
 Customer = namedtuple("Customer", ['index', 'demand', 'location', 'prefs', 'dists'])
+
+
+def split_problem(problem: 'FLProblem'):
+    top_left = next(iter(problem.customers.values())).location
+    bottom_right = top_left
+
+    # find the rect coordinates
+    for point in (obj.location for obj in chain(problem.customers.values(), problem.facilities.values())):
+        if top_left.x > point.x:
+            top_left = Point(x=point.x, y=top_left.y)
+        if top_left.y < point.y:
+            top_left = Point(x=top_left.x, y=point.y)
+        if bottom_right.x < point.x:
+            bottom_right = Point(x=point.x, y=bottom_right.y)
+        if bottom_right.y > point.y:
+            bottom_right = Point(x=bottom_right.x, y=point.y)
+
+    height = top_left.y - bottom_right.y
+    width = bottom_right.x - top_left.x
+
+    # divide along the biggest side:
+    rects: List[Point] = [None, None]
+    if height > width:
+        mid_y = (top_left.y + bottom_right.y) / 2
+        rects[0] = (top_left, Point(x=bottom_right.x, y=mid_y))
+        rects[1] = (Point(x=top_left.x, y=mid_y), bottom_right)
+    else:
+        mid_x = (top_left.x + bottom_right.x) / 2
+        rects[0] = (top_left, Point(x=mid_x, y=bottom_right.y))
+        rects[1] = (Point(x=top_left.x, y=mid_x), bottom_right)
+
+    facilities = [{}, {}]
+    customers = [{}, {}]
+
+    top_left, bottom_right = rects[0]
+    for customer in problem.customers.values():
+        if top_left.x <= customer.location.x <= bottom_right.x and bottom_right.y <= customer.location.y <= top_left.y:
+            customers[0][customer.index] = customer
+        else:
+            customers[1][customer.index] = customer
+    for facility in problem.facilities.values():
+        if top_left.x <= facility.location.x <= bottom_right.x and bottom_right.y <= facility.location.y <= top_left.y:
+            facilities[0][facility.index] = facility
+        else:
+            facilities[1][facility.index] = facility
+
+    return FLProblem(facilities=facilities[0], customers=customers[0]), \
+           FLProblem(facilities=facilities[1], customers=customers[1])
+
+
+def merge_problems(problems: Iterable['FLProblem']):
+    facilities = {}
+    customers = {}
+
+    for p in problems:
+        for facility in p.facilities.values():
+            facilities[facility.index] = facility
+        for customer in p.customers.values():
+            customers[customer.index] = customer
+
+    return FLProblem(facilities=facilities, customers=customers)
+
+
+def merge_solutions(solutions: Sequence['FLSolution']):
+    merged_problem = merge_problems(s.problem for s in solutions)
+    merged_solution = FLSolution(merged_problem)
+    merged_solution.selections = {}
+    for solution in solutions:
+        merged_solution.selections.update(solution.selections)
+    return merged_solution
 
 
 class FLProblem:
@@ -50,21 +121,20 @@ class FLSolution(Solution):
     def __init__(self, problem):
         super().__init__()
         self.problem = problem
-        self.selections = []  # the facility index for each customer
+        self.selections = {}  # customer: facility index the facility index for each customer
         self.optimal = False
 
     def get_value(self):
-        facility_indexes = frozenset(self.selections)
+        facility_indexes = frozenset(self.selections.values())
         total_setup_cost = sum(self.problem.facilities[f_i].setup_cost for f_i in facility_indexes)
-        total_dist = sum(self.problem.customers[c_i].dists[f_i] for c_i, f_i in enumerate(self.selections))
+        total_dist = sum(self.problem.customers[c_i].dists[f_i] for c_i, f_i in self.selections.items())
         return total_setup_cost + total_dist
 
     def is_feasible(self):
         # check capacity
-        capacities = [self.problem.facilities[f_i].capacity for f_i in range(len(self.problem.facilities))]
-        for c_i, f_i in enumerate(self.selections):
-            demand = self.problem.customers[c_i].demand
-            capacities[f_i] -= demand
+        capacities = {f.index: f.capacity for f in self.problem.facilities.values()}
+        for c_i, f_i in self.selections.items():
+            capacities[f_i] -= self.problem.customers[c_i].demand
             if capacities[f_i] < 0:
                 return False
         return True
@@ -74,8 +144,9 @@ class FLSolution(Solution):
 
     def serialize(self) -> str:
         # note: truncates the value
+        serialized_selections = [f for _, f in sorted(self.selections.items(), key=lambda item: item[0])]
         return "{:.3f} {}\n{}".format(int(self.get_value() * 1000) / 1000, int(self.is_optimal()),
-                                      " ".join(str(f_i) for f_i in self.selections))
+                                      " ".join(str(f_i) for f_i in serialized_selections))
 
     def is_better(self, other: 'Solution') -> bool:
         if self.optimal:
@@ -90,11 +161,11 @@ class FLSolution2(FLSolution):
         super().__init__(problem)
         self.setup_cost = 0.0
         self.dist_cost = 0.0
-        self.selections: List[Optional[int]] = [None for _ in range(len(problem.customers))]
+        self.selections = {c_i: None for c_i in problem.customers}
         self.open_fs = set()  # do we need this?
-        self.customer_count = [0 for _ in range(len(problem.facilities))]
-        self.capacities = [f.capacity for f in problem.facilities]
-        self.total_demand = sum(c.demand for c in problem.customers)
+        self.customer_count = {f_i: 0 for f_i in problem.facilities}
+        self.capacities = {f.index: f.capacity for f in problem.facilities.values()}
+        self.total_demand = sum(c.demand for c in problem.customers.values())
         self.total_capacity = sum(self.capacities)
         self.demand_covered = 0
 
@@ -163,20 +234,22 @@ class FLSolver(Solver):
         facility_count = int(parts[0])
         customer_count = int(parts[1])
 
-        facilities = []
-        customers = []
+        facilities = {}
+        customers = {}
         problem = FLProblem(facilities, customers)
 
         for i in range(1, facility_count + 1):
             parts = lines[i].split()
-            facilities.append(Facility(i - 1, float(parts[0]), int(parts[1]), Point(float(parts[2]), float(parts[3]))))
+            index = i - 1
+            facilities[index] = Facility(index, float(parts[0]), int(parts[1]), Point(float(parts[2]), float(parts[3])))
 
         for i in range(facility_count + 1, facility_count + 1 + customer_count):
             parts = lines[i].split()
             location = Point(float(parts[1]), float(parts[2]))
-            dists = [problem.dist(location, fl.location) for fl in facilities]
+            dists = [problem.dist(location, fl.location) for fl in facilities.values()]
             prefs = [index for index, dist in sorted(enumerate(dists), key=lambda t: t[1])]
-            customers.append(Customer(i - 1 - facility_count, int(parts[0]), location, prefs, dists))
+            index = i - 1 - facility_count
+            customers[index] = Customer(index, int(parts[0]), location, prefs, dists)
 
         return problem
 
@@ -186,11 +259,15 @@ class TrivialFLSolver(FLSolver):
         # pack the facilities one by one until all the customers are served
         solution = FLSolution2(problem)
 
-        facility_index = 0
-        for customer in problem.customers:
-            if solution.capacities[facility_index] < customer.demand:
-                facility_index += 1
-            solution.bind_customer(customer.index, facility_index)
+        facility_index_iter = iter(problem.facilities.keys())
+        facility_index = next(facility_index_iter)
+        for customer in problem.customers.values():
+            while True:
+                if solution.capacities[facility_index] < customer.demand:
+                    facility_index = next(facility_index_iter)
+                else:
+                    solution.bind_customer(customer.index, facility_index)
+                    break
 
         return solution
 
@@ -199,7 +276,7 @@ class GreedyPrefSolver(FLSolver):
     def _solve(self, problem: FLProblem) -> FLSolution2:
         solution = FLSolution2(problem)
 
-        for customer in problem.customers:
+        for customer in problem.customers.values():
             for f_i in customer.prefs:
                 if solution.capacities[f_i] > customer.demand:
                     solution.bind_customer(customer.index, f_i)
@@ -214,8 +291,8 @@ class GreedyDistSolver(FLSolver):
     def _solve(self, problem: FLProblem) -> FLSolution2:
         solution = FLSolution2(problem)
 
-        for customer in problem.customers:
-            prefs = sorted(solution.problem.facilities, reverse=False,
+        for customer in problem.customers.values():
+            prefs = sorted(solution.problem.facilities.values(), reverse=False,
                            key=lambda f: (f.setup_cost if f not in solution.open_fs else 0) + customer.dists[f.index])
             for f in prefs:
                 f_i = f.index
@@ -279,7 +356,7 @@ def get_remaining_setup_cost_estimation(solution: FLSolution2):
     if current_capacity < remaining_demand:
         remaining_capacity = remaining_demand
         # order the facilities by capacity / setup_cost and estimates based on that
-        for f in sorted((f for f in problem.facilities if f not in solution.open_fs), reverse=True,
+        for f in sorted((f for f in problem.facilities.values() if f not in solution.open_fs), reverse=True,
                         key=lambda f: f.capacity / max(f.setup_cost, 0.001)):
             if f.capacity > remaining_capacity:
                 setup_cost += f.setup_cost * remaining_capacity / f.capacity
@@ -323,7 +400,7 @@ class DFBnBSolver(FLSolver):
         best_value = self.best_value
 
         # Try the best combination of distance and setup_cost
-        prefs = sorted(solution.problem.facilities, reverse=False,
+        prefs = sorted(solution.problem.facilities.values(), reverse=False,
                        key=lambda f: (f.setup_cost if f not in solution.open_fs else 0) + c.dists[f.index])
 
         for f in prefs:
@@ -350,7 +427,7 @@ class DFBnBSolver(FLSolver):
             solution.bind_customer(c_i, None)
 
     def _solve(self, problem: FLProblem) -> FLSolution2:
-        self.customers = sorted(problem.customers, key=lambda c: c.demand, reverse=True)
+        self.customers = sorted(problem.customers.values(), key=lambda c: c.demand, reverse=True)
         self.best_solution = MultiSolver(solvers=[GreedyPrefSolver(), GreedyDistSolver()])._solve(problem)
         self.best_value = self.best_solution.get_value()
         solution = FLSolution2(problem)
@@ -466,14 +543,15 @@ class SASolver(FLSolver):
 
 
 class FLMipSolver(FLSolver):
-    def __init__(self):
+    def __init__(self, hide_output=False):
         super().__init__()
         self.timeout = None
         self.solution = None
         self._stop = False
-        total_mem_mb = psutil.virtual_memory().total / 1024 ** 2
-        self.max_mem_mb = max(total_mem_mb - 1024, 1024)
+        self.max_mem_mb = max(psutil.virtual_memory().free * 90 / (100 * 1024 ** 2), 1024)
         self.logger = logging.getLogger('solver')
+        self.max_vars = 1000 * 1000
+        self.hide_output = hide_output
 
     def stop(self):
         self._stop = True
@@ -483,57 +561,114 @@ class FLMipSolver(FLSolver):
     def set_timeout(self, timeout: int):
         self.timeout = timeout
 
+    @staticmethod
+    def _get_vars_estimate(problem):
+        return len(problem.customers) * len(problem.facilities)
+
     def _solve(self, problem: FLProblem):
-        vars = len(problem.customers) * len(problem.facilities)
-        self.logger.debug('{} vars estimated'.format(vars))
-        if vars > 1000 * 1000:
-            raise Exception('Problem is too big for me!')
+        n_vars = self._get_vars_estimate(problem)
+        self.logger.debug('{} vars estimated'.format(n_vars))
+        if n_vars > self.max_vars:
+            self.logger.error('Problem is too big for me!')
+            return
 
         model = Model('facility')
         model.setRealParam("limits/memory", self.max_mem_mb)
+        #model.setRealParam("limits/gap", 0.01)
         model.setEmphasis(SCIP_PARAMEMPHASIS.FEASIBILITY)  # detect feasibility fast
+
+        if self.hide_output:
+            model.hideOutput()
+
         if self.timeout:
             model.setRealParam("limits/time", self.timeout)
 
         x = {}  # facility f is open or closed
         y = {}  # facility f serves customer c
 
-        for facility in problem.facilities:
+        for facility in problem.facilities.values():
             x[facility.index] = model.addVar(name='x_{}'.format(facility.index), vtype='B')
 
-            for customer in problem.customers:
+            for customer in problem.customers.values():
                 y[facility.index, customer.index] = model.addVar(name='y_{},{}'.format(facility.index, customer.index),
                                                                  vtype='B')
 
         # a facility can serve a customer only if it is open
-        for facility in problem.facilities:
-            for customer in problem.customers:
+        for facility in problem.facilities.values():
+            for customer in problem.customers.values():
                 model.addCons(y[facility.index, customer.index] <= x[facility.index])
 
         # a customer must be served by exactly one facility
-        for customer in problem.customers:
-            model.addCons(quicksum(y[facility.index, customer.index] for facility in problem.facilities) == 1)
+        for customer in problem.customers.values():
+            model.addCons(quicksum(y[facility.index, customer.index] for facility in problem.facilities.values()) == 1)
 
         # the total demand must not exceed the facility capacity
-        for facility in problem.facilities:
+        for facility in problem.facilities.values():
             f = facility.index
-            model.addCons(quicksum(y[f, customer.index] * customer.demand for customer in problem.customers) <=
+            model.addCons(quicksum(y[f, customer.index] * customer.demand for customer in problem.customers.values()) <=
                           facility.capacity)
 
-        model.setObjective(quicksum(x[facility.index] * facility.setup_cost for facility in problem.facilities) +
+        model.setObjective(quicksum(x[facility.index] * facility.setup_cost for facility in problem.facilities.values()) +
                            quicksum(
-                               y[facility.index, customer.index] * problem.dist(facility.location, customer.location)
-                               for facility in problem.facilities for customer in problem.customers), "minimize")
+                               y[facility.index, customer.index] * customer.dists[facility.index]
+                               for facility in problem.facilities.values() for customer in problem.customers.values()), "minimize")
 
         model.optimize()
 
         self.solution = FLSolution(problem)
-        self.solution.selections = [0] * len(problem.customers)
-        for c in range(len(problem.customers)):
-            for f in range(len(problem.facilities)):
-                if model.getVal(y[f, c]) == 1:
+        self.solution.selections = {}
+        for c in problem.customers:
+            assigned_customer = False
+            for f in problem.facilities:
+                val = model.getVal(y[f, c])
+                if val > 0.5:
                     self.solution.selections[c] = f
+                    assigned_customer = True
                     break
+            assert assigned_customer
 
         #self.solution.optimal = not self._stop
         return self.solution
+
+
+class FLMipSplitter(FLMipSolver):
+    def __init__(self, *, hide_output=False, max_vars=None, is_root=True):
+        super().__init__(hide_output=hide_output)
+        self.is_root = is_root
+        if max_vars is not None:
+            self.max_vars = max_vars
+
+    def set_timeout(self, timeout: int):
+        self.timeout = max(timeout * 0.9, timeout - 3)
+        self.logger.debug('timeout: {}'.format(self.timeout))
+
+    def stop(self):
+        if self.is_root:
+            return super().stop()
+        else:
+            self._stop = True
+            return self.solution
+
+    def _solve(self, problem: FLProblem):
+        t0 = time.time()
+        n_vars = self._get_vars_estimate(problem)
+        if n_vars > self.max_vars:
+            self.logger.debug('{} vars is too much, splitting...'.format(n_vars))
+            problems = split_problem(problem)
+            solutions = []
+            if self.timeout:
+                time_budget = self.timeout / len(problems)
+            else:
+                time_budget = None
+
+            for p in problems:
+                solver = FLMipSplitter(hide_output=self.hide_output, max_vars=self.max_vars, is_root=False)
+                solver.set_timeout(time_budget)
+                solutions.append(solver._solve(p))
+                time_used = time.time() - t0
+                t0 = time.time()
+                time_budget += time_budget - time_used if self.timeout else None
+            merged = merge_solutions(solutions)
+            return merged
+        else:
+            return super()._solve(problem)
