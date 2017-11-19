@@ -226,13 +226,12 @@ class LS2OptVRPSolver(VRPSolver):
         return self.best_solution
 
     def perform_2opt(self, solution, i, j, same_tour=False):
+        length = (j - i + 1) // 2
+        for k in range(length):
+            solution.big_tour[i + k], solution.big_tour[j - k] = solution.big_tour[j - k], solution.big_tour[i + k]
+        # the tour ids will remain the same if same_tour
         if not same_tour:
-            solution.from_big_tour(solution.big_tour[:i] + list(reversed(solution.big_tour[i:j + 1])) + solution.big_tour[j + 1:])
-        else:
-            length = (j - i + 1) // 2
-            for k in range(length):
-                solution.big_tour[i + k], solution.big_tour[j - k] = solution.big_tour[j - k], solution.big_tour[i + k]
-            # the tour ids will remain the same
+            solution.from_big_tour(solution.big_tour)
 
     def improve(self, solution: VRPSolution, solution_value):
         n = len(solution.problem.customers)
