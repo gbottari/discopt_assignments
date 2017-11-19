@@ -10,7 +10,7 @@ from vrp.solver_tools import *
 
 def get_solver():
     #solver = MultiSolver(timeout=None, solvers=[RandomVRPSolver()])
-    solver = RandomVRPSolver()
+    solver = LS2OptVRPSolver()
     return solver
 
 

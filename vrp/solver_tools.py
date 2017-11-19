@@ -165,3 +165,50 @@ class RandomVRPSolver(VRPSolver):
         solution.from_small_tours(tours)
         return solution
 
+
+class LS2OptVRPSolver(VRPSolver):
+    def __init__(self, max_iters=1000):
+        self._stop = False
+        self.best_solution = None
+        self.best_value = None
+        self.max_iters = max_iters
+
+    def __repr__(self):
+        return '<{}(max_iters={})>'.format(self.__class__.__name__, self.max_iters)
+
+    def stop(self) -> VRPSolution:
+        self._stop = True
+        time.sleep(0.2)
+        return self.best_solution
+
+    def improve(self, solution: VRPSolution, solution_value):
+        n = len(solution.problem.customers)
+        i = random.randint(0, n - 1)
+        j = random.randint(0, n - 1)
+
+        if i > j:
+            i, j = j, i
+        elif i == j:
+            return solution_value
+
+        # perform 2-OPT
+        solution.big_tour = solution.big_tour[:i] + list(reversed(solution.big_tour[i:j + 1])) + solution.big_tour[j + 1:]
+
+        new_value = solution.get_value()
+        if not solution.is_feasible() or new_value > solution_value:
+            # undo
+            solution.big_tour = solution.big_tour[:i] + list(reversed(solution.big_tour[i:j + 1])) + solution.big_tour[j + 1:]
+        return new_value
+
+    def _solve(self, problem: VRPProblem):
+        self.best_solution = RandomVRPSolver()._solve(problem)
+        self.best_value = self.best_solution.get_value()
+
+        for _ in range(self.max_iters):
+            new_value = self.improve(self.best_solution, self.best_value)
+            if new_value < self.best_value:
+                self.best_value = new_value
+            if self._stop:
+                break
+
+        return self.best_solution

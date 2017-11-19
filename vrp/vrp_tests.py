@@ -66,3 +66,8 @@ class TestSolver(unittest.TestCase):
         problem = get_easy_problem()
         solution = RandomVRPSolver()._solve(problem)
         self.assertTrue(solution.is_feasible())
+
+    def test_ls2opt_feasible(self):
+        problem = get_easy_problem()
+        solution = LS2OptVRPSolver()._solve(problem)
+        self.assertTrue(solution.is_feasible())
