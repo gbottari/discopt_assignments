@@ -252,47 +252,44 @@ class LS2OptVRPSolver(VRPSolver):
 
             break
 
+        # we don't need to perform 2-OPT to know the value
+        next_j = solution.next_c_i_in_tour(j)
+        prev_j = solution.prev_c_i_in_tour(j)
+        next_i = solution.next_c_i_in_tour(i)
+        prev_i = solution.prev_c_i_in_tour(i)
+
+        get_c = solution.problem.get_customer
+        point_i = get_c(c_i).location
+        point_j = get_c(c_j).location
+        point_next_i = get_c(solution.big_tour[next_i]).location
+        point_next_j = get_c(solution.big_tour[next_j]).location
+        point_prev_i = get_c(solution.big_tour[prev_i]).location
+        point_prev_j = get_c(solution.big_tour[prev_j]).location
+
         new_value = solution_value
-        # check if the swap will happen inside the same tour
+        new_value -= solution.problem.dist(point_i, point_next_i)
+        new_value -= solution.problem.dist(point_prev_i, point_i)
+        new_value -= solution.problem.dist(point_j, point_next_j)
+        new_value -= solution.problem.dist(point_prev_j, point_j)
+
+        new_value += solution.problem.dist(point_j, point_next_i)
+        new_value += solution.problem.dist(point_prev_i, point_j)
+        new_value += solution.problem.dist(point_i, point_next_j)
+        new_value += solution.problem.dist(point_prev_j, point_i)
+
+        # don't waste time performing 2-OPT if the solution would be worse
+        if new_value > solution_value:
+            return solution_value
+
         inside_same_tour = solution.tour_ids[i] == solution.tour_ids[j]
-        if inside_same_tour:
-            # we don't need to perform 2-OPT to know the value
-            next_j = solution.next_c_i_in_tour(j)
-            prev_j = solution.prev_c_i_in_tour(j)
-            next_i = solution.next_c_i_in_tour(i)
-            prev_i = solution.prev_c_i_in_tour(i)
-
-            get_c = solution.problem.get_customer
-            point_i = get_c(c_i).location
-            point_j = get_c(c_j).location
-            point_next_i = get_c(solution.big_tour[next_i]).location
-            point_next_j = get_c(solution.big_tour[next_j]).location
-            point_prev_i = get_c(solution.big_tour[prev_i]).location
-            point_prev_j = get_c(solution.big_tour[prev_j]).location
-
-            new_value -= solution.problem.dist(point_i, point_next_i)
-            new_value -= solution.problem.dist(point_prev_i, point_i)
-            new_value -= solution.problem.dist(point_j, point_next_j)
-            new_value -= solution.problem.dist(point_prev_j, point_j)
-
-            new_value += solution.problem.dist(point_j, point_next_i)
-            new_value += solution.problem.dist(point_prev_i, point_j)
-            new_value += solution.problem.dist(point_i, point_next_j)
-            new_value += solution.problem.dist(point_prev_j, point_i)
-
-            # don't waste time performing 2-OPT if the solution will be worse
-            if new_value > solution_value:
-                return solution_value
-
-        # perform 2-OPT
         self.perform_2opt(solution, i, j, same_tour=inside_same_tour)
 
-        if not inside_same_tour:
-            new_value = solution.get_value()
-            if new_value > solution_value or not solution.is_feasible():
-                # undo
-                self.perform_2opt(solution, i, j, same_tour=inside_same_tour)
+        # we don't need to check for feasibility if the solution is inside the same tour
+        if not inside_same_tour and not solution.is_feasible():
+            # undo 2-OPT
+            self.perform_2opt(solution, i, j, same_tour=inside_same_tour)
 
+        #assert solution.is_feasible()
         return new_value
 
     def _solve(self, problem: VRPProblem):
