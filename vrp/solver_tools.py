@@ -62,6 +62,7 @@ class VRPSolution(Solution):
         super().__init__()
         self.problem = problem
         self.big_tour = []
+        self.tour_ids = []
         self.optimal = False
 
     def get_small_tours(self):
@@ -74,11 +75,54 @@ class VRPSolution(Solution):
     def from_small_tours(self, small_tours):
         i = 0
         self.big_tour = [0]
+        self.tour_ids = []
+        tour_id = 0
         for small_tour in small_tours:
             self.big_tour.extend(small_tour[1:])
+            self.tour_ids.extend([tour_id] * (len(small_tour) - 1))
+            tour_id += 1
             i -= 1
             self.big_tour[-1] = i
+        self.tour_ids.append(tour_id)
         self.big_tour.append(0)
+
+    def from_big_tour(self, big_tour):
+        self.big_tour = big_tour
+        self.tour_ids = [0] * len(big_tour)
+        tour_id = -1
+        for i in range(len(big_tour)):
+            if is_warehouse(big_tour[i]):
+                tour_id += 1
+            self.tour_ids[i] = tour_id
+
+    def next_c_i_in_tour(self, index) -> int:
+        curr_tour_id = self.tour_ids[index]
+        if index + 1 == len(self.tour_ids):
+            start_index = self.tour_ids.index(curr_tour_id)
+            return self.big_tour[start_index]
+
+        next_tour_id = self.tour_ids[index + 1]
+        if next_tour_id != curr_tour_id:
+            start_index = self.tour_ids.index(curr_tour_id)
+            return self.big_tour[start_index]
+        else:
+            return self.big_tour[index + 1]
+
+    def prev_c_i_in_tour(self, index) -> int:
+        curr_tour_id = self.tour_ids[index]
+        if index == 0:
+            end_index = len(self.tour_ids) - self.tour_ids[::-1].index(curr_tour_id) - 1
+            return self.big_tour[end_index]
+
+        prev_tour_id = self.tour_ids[index - 1]
+        if prev_tour_id != curr_tour_id:
+            if curr_tour_id == self.problem.max_vehicles - 1:
+                end_index = self.problem.max_vehicles - 1
+            else:
+                end_index = len(self.tour_ids) - self.tour_ids[::-1].index(curr_tour_id) - 1
+            return self.big_tour[end_index]
+        else:
+            return self.big_tour[index - 1]
 
     def get_value(self):
         get_c = self.problem.get_customer
@@ -181,23 +225,74 @@ class LS2OptVRPSolver(VRPSolver):
         time.sleep(0.2)
         return self.best_solution
 
+    def perform_2opt(self, solution, i, j, same_tour=False):
+        if not same_tour:
+            solution.from_big_tour(solution.big_tour[:i] + list(reversed(solution.big_tour[i:j + 1])) + solution.big_tour[j + 1:])
+        else:
+            length = (j - i + 1) // 2
+            for k in range(length):
+                solution.big_tour[i + k], solution.big_tour[j - k] = solution.big_tour[j - k], solution.big_tour[i + k]
+            # the tour ids will remain the same
+
     def improve(self, solution: VRPSolution, solution_value):
         n = len(solution.problem.customers)
-        i = random.randint(0, n - 1)
-        j = random.randint(0, n - 1)
 
-        if i > j:
-            i, j = j, i
-        elif i == j:
-            return solution_value
+        while True:
+            i = random.randint(0, n - 1)
+            j = random.randint(0, n - 1)
+
+            if i > j:
+                i, j = j, i
+
+            c_i = solution.big_tour[i]
+            c_j = solution.big_tour[j]
+            if i == j or is_warehouse(c_i) != is_warehouse(c_j):
+                # note: swapping warehouses from the same tour is useless, but allowed
+                continue
+
+            break
+
+        new_value = solution_value
+        # check if the swap will happen inside the same tour
+        inside_same_tour = solution.tour_ids[i] == solution.tour_ids[j]
+        if inside_same_tour:
+            # we don't need to perform 2-OPT to know the value
+            next_j = solution.next_c_i_in_tour(j)
+            prev_j = solution.prev_c_i_in_tour(j)
+            next_i = solution.next_c_i_in_tour(i)
+            prev_i = solution.prev_c_i_in_tour(i)
+
+            get_c = solution.problem.get_customer
+            point_i = get_c(c_i).location
+            point_j = get_c(c_j).location
+            point_next_i = get_c(solution.big_tour[next_i]).location
+            point_next_j = get_c(solution.big_tour[next_j]).location
+            point_prev_i = get_c(solution.big_tour[prev_i]).location
+            point_prev_j = get_c(solution.big_tour[prev_j]).location
+
+            new_value -= solution.problem.dist(point_i, point_next_i)
+            new_value -= solution.problem.dist(point_prev_i, point_i)
+            new_value -= solution.problem.dist(point_j, point_next_j)
+            new_value -= solution.problem.dist(point_prev_j, point_j)
+
+            new_value += solution.problem.dist(point_j, point_next_i)
+            new_value += solution.problem.dist(point_prev_i, point_j)
+            new_value += solution.problem.dist(point_i, point_next_j)
+            new_value += solution.problem.dist(point_prev_j, point_i)
+
+            # don't waste time performing 2-OPT if the solution will be worse
+            if new_value > solution_value:
+                return solution_value
 
         # perform 2-OPT
-        solution.big_tour = solution.big_tour[:i] + list(reversed(solution.big_tour[i:j + 1])) + solution.big_tour[j + 1:]
+        self.perform_2opt(solution, i, j, same_tour=inside_same_tour)
 
-        new_value = solution.get_value()
-        if not solution.is_feasible() or new_value > solution_value:
-            # undo
-            solution.big_tour = solution.big_tour[:i] + list(reversed(solution.big_tour[i:j + 1])) + solution.big_tour[j + 1:]
+        if not inside_same_tour:
+            new_value = solution.get_value()
+            if new_value > solution_value or not solution.is_feasible():
+                # undo
+                self.perform_2opt(solution, i, j, same_tour=inside_same_tour)
+
         return new_value
 
     def _solve(self, problem: VRPProblem):

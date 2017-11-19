@@ -68,6 +68,28 @@ class TestSolver(unittest.TestCase):
         self.assertTrue(solution.is_feasible())
 
     def test_ls2opt_feasible(self):
-        problem = get_easy_problem()
-        solution = LS2OptVRPSolver()._solve(problem)
+        problem = get_problem_by_filename('vrp_16_3_1')
+        solution = LS2OptVRPSolver(max_iters=10000)._solve(problem)
         self.assertTrue(solution.is_feasible())
+
+    def test_next_customer_in_tour(self):
+        problem = get_easy_problem()
+        solution = VRPSolution(problem)
+        solution.from_big_tour([0, 1, 2, -1, 3, 0])
+        # tour 1: 0, 1, 2
+        # tour 2: -1, 3
+
+        self.assertEqual(solution.next_c_i_in_tour(0), 1)  # 0
+        self.assertEqual(solution.next_c_i_in_tour(1), 2)  # 1
+        self.assertEqual(solution.next_c_i_in_tour(2), 0)  # 2
+        self.assertEqual(solution.next_c_i_in_tour(3), 3)  # -1
+        self.assertEqual(solution.next_c_i_in_tour(4), -1) # 3
+        self.assertEqual(solution.next_c_i_in_tour(5), 0)  # 0
+
+        self.assertEqual(solution.prev_c_i_in_tour(0), 2)  # 0
+        self.assertEqual(solution.prev_c_i_in_tour(1), 0)  # 1
+        self.assertEqual(solution.prev_c_i_in_tour(2), 1)  # 2
+        self.assertEqual(solution.prev_c_i_in_tour(3), 3)  # -1
+        self.assertEqual(solution.prev_c_i_in_tour(4), -1) # 3
+        self.assertEqual(solution.prev_c_i_in_tour(5), 0)  # 0
+
