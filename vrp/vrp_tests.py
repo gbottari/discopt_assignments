@@ -73,6 +73,11 @@ class TestSolver(unittest.TestCase):
         solution = LS2OptVRPSolver(max_iters=10000)._solve(problem)
         self.assertTrue(solution.is_feasible())
 
+    def test_sasolver_feasible(self):
+        problem = get_problem_by_filename('vrp_16_3_1')
+        solution = SASolver(improvement_limit=100)._solve(problem)
+        self.assertTrue(solution.is_feasible())
+
     def test_next_customer_in_tour(self):
         problem = get_easy_problem()
         solution = VRPSolution(problem)
@@ -120,3 +125,30 @@ class TestSolver(unittest.TestCase):
         solution.from_big_tour([0, 13, 15, 7, 14, 6, -1, 5, 11, 2, 4, 10, -2, 8, 9, 3, 12, 1, 0])
         #                       0   1   2  3   4  5   6  7   8  9
         self.assertFalse(solver._check_demand(solution, 1, 9))
+
+    def test_calc_value(self):
+        problem = get_problem_by_filename('vrp_5_4_1')
+        solution = VRPSolution(problem)
+        solver = LS2OptVRPSolver()
+        dist = problem.dist
+        get_c = problem.get_customer
+
+        solution.from_big_tour([0, 2, 1, 3, -1, 4, -2, -3, 0])
+        value = solver.calc_sol_value(solution, solution.get_value(), 1, 2)
+        self.assertAlmostEqual(value, 80.6, places=1)
+
+        solution.from_big_tour([0, 1, 3, 2, -1, 4, -2, -3, 0])
+        value = solver.calc_sol_value(solution, solution.get_value(), 2, 3)
+        self.assertAlmostEqual(value, 80.6, places=1)
+
+        solution.from_big_tour([0, 1, 3, 2, -1, 4, -2, -3, 0])
+        value = solver.calc_sol_value(solution, solution.get_value(), 3, 5)
+        expected_value = solution.get_value() \
+                         - dist(get_c(3).location, get_c(2).location) \
+                         + dist(get_c(3).location, get_c(4).location) \
+                         - dist(get_c(4).location, get_c(-2).location) \
+                         + dist(get_c(2).location, get_c(-2).location)
+        solution.from_big_tour([0, 1, 3, 4, -1, 2, -2, -3, 0])
+        actual_value = solution.get_value()
+        self.assertEqual(expected_value, actual_value)
+        self.assertAlmostEqual(value, actual_value, places=1)

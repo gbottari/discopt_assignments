@@ -12,6 +12,7 @@ from vrp.solver_tools import *
 def get_solver():
     #solver = MultiSolver(timeout=None, solvers=[RandomVRPSolver()])
     solver = LS2OptVRPSolver(max_iters=10000)
+    #solver = SASolver(improvement_limit=3000)
     return solver
 
 

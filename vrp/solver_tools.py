@@ -171,6 +171,14 @@ class VRPSolution(Solution):
             return False
         return self.get_value() < other.get_value()
 
+    def copy(self):
+        inst = VRPSolution(self.problem)
+        inst.big_tour = self.big_tour.copy()
+        inst.capacities = self.capacities.copy()
+        inst.tour_ids = self.tour_ids.copy()
+        inst.optimal = self.optimal
+        return inst
+
 
 class VRPSolver(Solver):
     def _parse(self, raw_input_data: str):
@@ -269,7 +277,7 @@ class LS2OptVRPSolver(VRPSolver):
         # unfeasible by demand
         return all(c >= 0 for c in new_capacities)
 
-    def improve(self, solution: VRPSolution, solution_value):
+    def get_random_swap_indexes(self, solution):
         n = len(solution.problem.customers)
 
         while True:
@@ -284,32 +292,33 @@ class LS2OptVRPSolver(VRPSolver):
             if i == j or is_warehouse(c_i) or is_warehouse(c_j):
                 continue
 
-            break
+            return i, j
 
-        # we don't need to perform 2-OPT to know the value
+    def calc_sol_value(self, solution, solution_value, i, j):
+        get_c = solution.problem.get_customer
+        dist = solution.problem.dist
+
+        c_i = solution.big_tour[i]
+        c_j = solution.big_tour[j]
+
         next_j = solution.next_c_i_in_tour(j)
-        prev_j = solution.prev_c_i_in_tour(j)
-        next_i = solution.next_c_i_in_tour(i)
         prev_i = solution.prev_c_i_in_tour(i)
 
-        get_c = solution.problem.get_customer
         point_i = get_c(c_i).location
         point_j = get_c(c_j).location
-        point_next_i = get_c(solution.big_tour[next_i]).location
-        point_next_j = get_c(solution.big_tour[next_j]).location
-        point_prev_i = get_c(solution.big_tour[prev_i]).location
-        point_prev_j = get_c(solution.big_tour[prev_j]).location
+        point_next_j = get_c(next_j).location
+        point_prev_i = get_c(prev_i).location
 
-        new_value = solution_value
-        new_value -= solution.problem.dist(point_i, point_next_i)
-        new_value -= solution.problem.dist(point_prev_i, point_i)
-        new_value -= solution.problem.dist(point_j, point_next_j)
-        new_value -= solution.problem.dist(point_prev_j, point_j)
+        solution_value -= dist(point_prev_i, point_i)
+        solution_value -= dist(point_j, point_next_j)
+        solution_value += dist(point_prev_i, point_j)
+        solution_value += dist(point_i, point_next_j)
 
-        new_value += solution.problem.dist(point_j, point_next_i)
-        new_value += solution.problem.dist(point_prev_i, point_j)
-        new_value += solution.problem.dist(point_i, point_next_j)
-        new_value += solution.problem.dist(point_prev_j, point_i)
+        return solution_value
+
+    def improve(self, solution: VRPSolution, solution_value, i, j):
+        # we don't need to perform 2-OPT to know the value
+        new_value = self.calc_sol_value(solution, solution_value, i, j)
 
         # don't waste time performing 2-OPT if the solution would be worse
         if new_value > solution_value:
@@ -323,12 +332,6 @@ class LS2OptVRPSolver(VRPSolver):
 
         self.perform_2opt(solution, i, j, same_tour=inside_same_tour)
 
-        # we don't need to check for feasibility if the solution is inside the same tour
-        if not inside_same_tour and not solution.is_feasible():
-            # undo 2-OPT
-            self.perform_2opt(solution, i, j, same_tour=inside_same_tour)
-
-        #assert solution.is_feasible()
         return new_value
 
     def _solve(self, problem: VRPProblem):
@@ -336,10 +339,78 @@ class LS2OptVRPSolver(VRPSolver):
         self.best_value = self.best_solution.get_value()
 
         for _ in range(self.max_iters):
-            new_value = self.improve(self.best_solution, self.best_value)
+            i, j = self.get_random_swap_indexes(self.best_solution)
+            new_value = self.improve(self.best_solution, self.best_value, i, j)
             if new_value < self.best_value:
                 self.best_value = new_value
             if self._stop:
                 break
 
+        return self.best_solution
+
+
+class SASolver(VRPSolver):
+    def __init__(self, t0=100000000.0, alpha=0.999, improvement_limit=100000, debug=False):
+        super().__init__()
+        self.t0 = t0
+        self.alpha = alpha
+        self._stop = False
+        self.best_solution = None
+        self.debug = debug
+        self.improvement_limit = improvement_limit
+
+    def stop(self):
+        self._stop = True
+        return self.best_solution
+
+    def _solve(self, problem: VRPProblem):
+        k = 0
+        last_improvement = 0
+        solution = RandomVRPSolver()._solve(problem)
+        solution.stats = Stats()
+
+        self.best_solution = solution.copy()
+        ls_solver = LS2OptVRPSolver()
+
+        solution_value = best_value = solution.get_value()
+        t = self.t0
+        logger = logging.getLogger('solver')
+        if self.debug:
+            solution.stats.final_value = best_value
+
+        while not self._stop and (k - last_improvement < self.improvement_limit):
+            i, j = ls_solver.get_random_swap_indexes(solution)
+            inside_same_tour = solution.tour_ids[i] == solution.tour_ids[j]
+
+            if not inside_same_tour and not ls_solver._check_demand(solution, i, j):
+                continue
+
+            new_value = ls_solver.calc_sol_value(solution, solution_value, i, j)
+            prob = min(1 if round(solution_value - new_value, 1) > 0.0 else math.exp(-(new_value - solution_value) / t), 1)
+
+            if prob >= random.random():
+                if self.debug:
+                    solution.stats.improvements_x.append(k)
+                    solution.stats.improvements_y.append(new_value)
+
+                # accept move
+                solution_value = new_value
+                ls_solver.perform_2opt(solution, i, j, same_tour=inside_same_tour)
+
+                if round(best_value - solution_value, 1) > 0.0:
+                    self.best_solution = solution.copy()
+                    best_value = new_value
+                    last_improvement = k
+                    if self.debug:
+                        solution.stats.final_value = best_value
+
+            t = max(t * self.alpha, 0.1)
+            k += 1
+
+            if self.debug:
+                solution.stats.probs.append(prob)
+                solution.stats.temperature.append(t)
+
+        logger.debug('alpha = {}, t0 = {}, k = {}, t = {}, k - last_improvement = {}'.format(
+            self.alpha, self.t0, k, t, k - last_improvement))
         return self.best_solution
