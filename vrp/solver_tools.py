@@ -143,12 +143,22 @@ class VRPSolution(Solution):
 
         get_cs = self.problem.get_customer
         tour_count = 0
+        customer_set = set()
         for small_tour in self.get_small_tours():
             # demand must not exceed capacity
             total_demand = sum(get_cs(c_i).demand for c_i in small_tour)
             if total_demand > self.problem.capacity:
                 return False
             tour_count += 1
+
+            for c_i in small_tour:
+                if is_not_warehouse(c_i) and c_i in customer_set:
+                    return False
+            customer_set.update(small_tour)
+            customer_set.remove(0)
+
+        if len(customer_set) + 1 != len(self.problem.customers):
+            return False
 
         if tour_count != self.problem.max_vehicles:
             return False
@@ -177,6 +187,7 @@ class VRPSolution(Solution):
         inst.capacities = self.capacities.copy()
         inst.tour_ids = self.tour_ids.copy()
         inst.optimal = self.optimal
+        inst.stats = self.stats
         return inst
 
 
@@ -208,12 +219,46 @@ class RandomVRPSolver(VRPSolver):
         random.shuffle(customers)
 
         for customer in customers:
-            for i in range(problem.max_vehicles):
+            found_vehicle = False
+            vehicles = list(range(problem.max_vehicles))
+            random.shuffle(vehicles)
+            for i in vehicles:
                 # check capacity
                 if customer.demand <= remaining_capacity[i]:
                     remaining_capacity[i] -= customer.demand
                     tours[i].append(customer.index)
+                    found_vehicle = True
                     break
+            if not found_vehicle:
+                return self._solve(problem)
+
+        # finish tours
+        for tour in tours:
+            tour.append(0)
+
+        solution = VRPSolution(problem)
+        solution.from_small_tours(tours)
+        return solution
+
+
+class RandomStableVRPSolver(VRPSolver):
+    def _solve(self, problem: VRPProblem):
+        tours: List[List[int]] = [[0] for _ in range(problem.max_vehicles)]
+        remaining_capacity = [problem.capacity] * problem.max_vehicles
+
+        for customer in sorted(problem.customers[1:], key=lambda c: c.demand, reverse=True):
+            found_vehicle = False
+            vehicles = list(range(problem.max_vehicles))
+            random.shuffle(vehicles)
+            for i in vehicles:
+                # check capacity
+                if customer.demand <= remaining_capacity[i]:
+                    remaining_capacity[i] -= customer.demand
+                    tours[i].append(customer.index)
+                    found_vehicle = True
+                    break
+            if not found_vehicle:
+                return self._solve(problem)
 
         # finish tours
         for tour in tours:
@@ -335,7 +380,7 @@ class LS2OptVRPSolver(VRPSolver):
         return new_value
 
     def _solve(self, problem: VRPProblem):
-        self.best_solution = RandomVRPSolver()._solve(problem)
+        self.best_solution = RandomStableVRPSolver()._solve(problem)
         self.best_value = self.best_solution.get_value()
 
         for _ in range(self.max_iters):
@@ -359,6 +404,10 @@ class SASolver(VRPSolver):
         self.debug = debug
         self.improvement_limit = improvement_limit
 
+    def __repr__(self):
+        return '<{}(t0={}, alpha={}, il={})>'.format(self.__class__.__name__, self.t0, self.alpha,
+                                                     self.improvement_limit)
+
     def stop(self):
         self._stop = True
         return self.best_solution
@@ -366,7 +415,7 @@ class SASolver(VRPSolver):
     def _solve(self, problem: VRPProblem):
         k = 0
         last_improvement = 0
-        solution = RandomVRPSolver()._solve(problem)
+        solution = RandomStableVRPSolver()._solve(problem)
         solution.stats = Stats()
 
         self.best_solution = solution.copy()

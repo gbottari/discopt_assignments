@@ -69,7 +69,7 @@ class TestSolver(unittest.TestCase):
 
     #@unittest.skip('')
     def test_ls2opt_feasible(self):
-        problem = get_problem_by_filename('vrp_16_3_1')
+        problem = get_problem_by_filename('vrp_26_8_1')
         solution = LS2OptVRPSolver(max_iters=10000)._solve(problem)
         self.assertTrue(solution.is_feasible())
 
