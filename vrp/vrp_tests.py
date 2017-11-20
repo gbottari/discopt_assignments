@@ -78,6 +78,36 @@ class TestSolver(unittest.TestCase):
         solution = SASolver(improvement_limit=100)._solve(problem)
         self.assertTrue(solution.is_feasible())
 
+    def test_sasolver2_feasible(self):
+        problem = get_problem_by_filename('vrp_16_3_1')
+        solution = SASolver2(improvement_limit=100, refinement_loops=100)._solve(problem)
+        self.assertTrue(solution.is_feasible())
+
+    def test_ils_solver_feasible(self):
+        problem = get_problem_by_filename('vrp_16_3_1')
+        solution = ILSVRPSolver(max_dives=3, max_diving_iters=1000)._solve(problem)
+        self.assertTrue(solution.is_feasible())
+
+    def test_ils_solver2_feasible(self):
+        problem = get_problem_by_filename('vrp_16_3_1')
+        solution = ILSVRPSolver2(max_failed_dives=3, depth_multiplier=1.1, refinement_loops=0)._solve(problem)
+        self.assertTrue(solution.is_feasible())
+
+    def test_ils_explorer_feasible(self):
+        problem = get_problem_by_filename('vrp_16_3_1')
+        solution = ILSVRPExplorerSolver(max_dives=5, max_diving_iters=100, max_good_sols=2)._solve(problem)
+        self.assertTrue(solution.is_feasible())
+
+    def test_ils_bagger_feasible(self):
+        problem = get_problem_by_filename('vrp_16_3_1')
+        solution = ILSVRPBaggerSolver(max_dives=10, max_diving_iters=100, max_good_sols=20)._solve(problem)
+        self.assertTrue(solution.is_feasible())
+
+    def test_tour_improver_feasible(self):
+        problem = get_problem_by_filename('vrp_16_3_1')
+        solution = TourImprover()._solve(problem)
+        self.assertTrue(solution.is_feasible())
+
     def test_next_customer_in_tour(self):
         problem = get_easy_problem()
         solution = VRPSolution(problem)

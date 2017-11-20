@@ -9,7 +9,10 @@ from vrp.solver_tools import *
 
 
 def solve_it(input_data):
-    solver = MultiSolver(timeout=250, solvers=[SASolver(t0=100000.0, alpha=0.99996, improvement_limit=200000)])
+    solver = MultiSolver(timeout=300, solvers=[
+        ILSVRPSolver(max_diving_iters=800, max_dives=2000),
+        SASolver(t_min=0.1, t_max=100000.0, alpha=0.99996, improvement_limit=200000),
+    ])
     mgr = SolverManager()
     return mgr.solve(input_data, solver)
 
