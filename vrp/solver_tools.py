@@ -63,6 +63,7 @@ class VRPSolution(Solution):
         self.problem = problem
         self.big_tour = []
         self.tour_ids = []
+        self.capacities = [problem.capacity] * problem.max_vehicles
         self.optimal = False
 
     def get_small_tours(self):
@@ -76,6 +77,7 @@ class VRPSolution(Solution):
         i = 0
         self.big_tour = [0]
         self.tour_ids = []
+        self.capacities = []
         tour_id = 0
         for small_tour in small_tours:
             self.big_tour.extend(small_tour[1:])
@@ -83,22 +85,27 @@ class VRPSolution(Solution):
             tour_id += 1
             i -= 1
             self.big_tour[-1] = i
-        self.tour_ids.append(tour_id)
-        self.big_tour.append(0)
+            self.capacities.append(self.problem.capacity -
+                                   sum(self.problem.customers[c_i].demand for c_i in small_tour))
+        self.tour_ids.append(tour_id - 1)
+        self.big_tour[-1] = 0
 
     def from_big_tour(self, big_tour):
         self.big_tour = big_tour
         self.tour_ids = [0] * len(big_tour)
-        tour_id = -1
+        self.capacities = [self.problem.capacity] * self.problem.max_vehicles
+        tour_id = 0
         for i in range(len(big_tour)):
-            if is_warehouse(big_tour[i]):
+            c_i = big_tour[i]
+            if is_warehouse(c_i) and c_i != 0:
                 tour_id += 1
             self.tour_ids[i] = tour_id
+            self.capacities[tour_id] -= self.problem.get_customer(c_i).demand
 
     def next_c_i_in_tour(self, index) -> int:
         curr_tour_id = self.tour_ids[index]
         if index + 1 == len(self.tour_ids):
-            start_index = self.tour_ids.index(curr_tour_id)
+            start_index = self.tour_ids.index(curr_tour_id) + 1
             return self.big_tour[start_index]
 
         next_tour_id = self.tour_ids[index + 1]
@@ -143,7 +150,7 @@ class VRPSolution(Solution):
                 return False
             tour_count += 1
 
-        if tour_count < self.problem.max_vehicles:
+        if tour_count != self.problem.max_vehicles:
             return False
 
         return True
@@ -191,7 +198,6 @@ class RandomVRPSolver(VRPSolver):
         remaining_capacity = [problem.capacity] * problem.max_vehicles
         customers = problem.customers[1:]
         random.shuffle(customers)
-        i = 0
 
         for customer in customers:
             for i in range(problem.max_vehicles):
@@ -229,9 +235,39 @@ class LS2OptVRPSolver(VRPSolver):
         length = (j - i + 1) // 2
         for k in range(length):
             solution.big_tour[i + k], solution.big_tour[j - k] = solution.big_tour[j - k], solution.big_tour[i + k]
+
         # the tour ids will remain the same if same_tour
         if not same_tour:
             solution.from_big_tour(solution.big_tour)
+
+    def _check_demand(self, solution, i, j):
+        get_c = solution.problem.get_customer
+        new_capacities = solution.capacities.copy()
+
+        t_id_1 = solution.tour_ids[i]
+        t_id_2 = solution.tour_ids[j]
+
+        if t_id_1 == t_id_2:
+            return True
+
+        for k in range(i, j):
+            if is_warehouse(solution.big_tour[k]):
+                break
+
+            c = get_c(solution.big_tour[k])
+            new_capacities[t_id_1] += c.demand
+            new_capacities[t_id_2] -= c.demand
+
+        for k in range(j, i - 1, -1):
+            if is_warehouse(solution.big_tour[k]):
+                break
+
+            c = get_c(solution.big_tour[k])
+            new_capacities[t_id_2] += c.demand
+            new_capacities[t_id_1] -= c.demand
+
+        # unfeasible by demand
+        return all(c >= 0 for c in new_capacities)
 
     def improve(self, solution: VRPSolution, solution_value):
         n = len(solution.problem.customers)
@@ -245,8 +281,7 @@ class LS2OptVRPSolver(VRPSolver):
 
             c_i = solution.big_tour[i]
             c_j = solution.big_tour[j]
-            if i == j or is_warehouse(c_i) != is_warehouse(c_j):
-                # note: swapping warehouses from the same tour is useless, but allowed
+            if i == j or is_warehouse(c_i) or is_warehouse(c_j):
                 continue
 
             break
@@ -281,6 +316,11 @@ class LS2OptVRPSolver(VRPSolver):
             return solution_value
 
         inside_same_tour = solution.tour_ids[i] == solution.tour_ids[j]
+
+        if not inside_same_tour:
+            if not self._check_demand(solution, i, j):
+                return solution_value
+
         self.perform_2opt(solution, i, j, same_tour=inside_same_tour)
 
         # we don't need to check for feasibility if the solution is inside the same tour

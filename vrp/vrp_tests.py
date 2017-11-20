@@ -67,6 +67,7 @@ class TestSolver(unittest.TestCase):
         solution = RandomVRPSolver()._solve(problem)
         self.assertTrue(solution.is_feasible())
 
+    #@unittest.skip('')
     def test_ls2opt_feasible(self):
         problem = get_problem_by_filename('vrp_16_3_1')
         solution = LS2OptVRPSolver(max_iters=10000)._solve(problem)
@@ -83,13 +84,39 @@ class TestSolver(unittest.TestCase):
         self.assertEqual(solution.next_c_i_in_tour(1), 2)  # 1
         self.assertEqual(solution.next_c_i_in_tour(2), 0)  # 2
         self.assertEqual(solution.next_c_i_in_tour(3), 3)  # -1
-        self.assertEqual(solution.next_c_i_in_tour(4), -1) # 3
-        self.assertEqual(solution.next_c_i_in_tour(5), 0)  # 0
+        self.assertEqual(solution.next_c_i_in_tour(4), 0)  # 3
+        self.assertEqual(solution.next_c_i_in_tour(5), 3)  # 0
 
         self.assertEqual(solution.prev_c_i_in_tour(0), 2)  # 0
         self.assertEqual(solution.prev_c_i_in_tour(1), 0)  # 1
         self.assertEqual(solution.prev_c_i_in_tour(2), 1)  # 2
-        self.assertEqual(solution.prev_c_i_in_tour(3), 3)  # -1
+        self.assertEqual(solution.prev_c_i_in_tour(3), 0)  # -1
         self.assertEqual(solution.prev_c_i_in_tour(4), -1) # 3
-        self.assertEqual(solution.prev_c_i_in_tour(5), 0)  # 0
+        self.assertEqual(solution.prev_c_i_in_tour(5), 3)  # 0
 
+    def test_demand_check(self):
+        problem = get_easy_problem()
+        problem.capacity = 6
+
+        solver = LS2OptVRPSolver()
+        solution = VRPSolution(problem)
+        #                       0  1  2   3  4  5   6   7  8
+        solution.from_big_tour([0, 1, 2, -1, 3, 4, -2, -3, 0])
+        #                       0  0  0   1  1  1   2   3  3
+        self.assertTrue(solution.is_feasible())
+        self.assertTrue(solver._check_demand(solution, 1, 2))
+        #  0  0  0  0   1  1   2   2  3
+        # [0, 1, 4, 3, -1, 2, -2, -3, 0]
+        self.assertFalse(solver._check_demand(solution, 2, 5))
+
+        #                       0  1  2  3   4  5   6   7  8
+        solution.from_big_tour([0, 1, 2, 3, -1, 4, -2, -3, 0])
+        #                       0  0  0  0   1  1   2   3  3
+        # [0, 1, 4, -1, 3, 2, -2, -3, 0]
+        self.assertTrue(solver._check_demand(solution, 2, 5))
+
+        problem = get_problem_by_filename('vrp_16_3_1')
+        solution = VRPSolution(problem)
+        solution.from_big_tour([0, 13, 15, 7, 14, 6, -1, 5, 11, 2, 4, 10, -2, 8, 9, 3, 12, 1, 0])
+        #                       0   1   2  3   4  5   6  7   8  9
+        self.assertFalse(solver._check_demand(solution, 1, 9))
