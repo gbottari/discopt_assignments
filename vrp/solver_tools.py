@@ -319,7 +319,8 @@ class LS2OptVRPSolver(VRPSolver):
         time.sleep(0.2)
         return self.best_solution
 
-    def perform_2opt(self, solution, i, j, same_tour=False):
+    @staticmethod
+    def perform_2opt(solution, i, j, same_tour=False):
         length = (j - i + 1) // 2
         for k in range(length):
             solution.big_tour[i + k], solution.big_tour[j - k] = solution.big_tour[j - k], solution.big_tour[i + k]
@@ -328,9 +329,9 @@ class LS2OptVRPSolver(VRPSolver):
         if not same_tour:
             solution.from_big_tour(solution.big_tour)
 
-    def _check_demand(self, solution, i, j):
+    @staticmethod
+    def predict_capacities(solution, new_capacities, i, j):
         get_c = solution.problem.get_customer
-        new_capacities = solution.capacities.copy()
 
         t_id_1 = solution.tour_ids[i]
         t_id_2 = solution.tour_ids[j]
@@ -354,27 +355,29 @@ class LS2OptVRPSolver(VRPSolver):
             new_capacities[t_id_2] += c.demand
             new_capacities[t_id_1] -= c.demand
 
+    def _check_demand(self, solution, i, j):
+        new_capacities = solution.capacities.copy()
+        self.predict_capacities(solution, new_capacities, i, j)
         # unfeasible by demand
         return all(c >= 0 for c in new_capacities)
 
-    def get_random_swap_indexes(self, solution):
-        n = len(solution.problem.customers)
+    @staticmethod
+    def get_random_swap_indexes(solution):
+        n = len(solution.big_tour)
 
         while True:
-            i = random.randint(0, n - 1)
-            j = random.randint(0, n - 1)
-
-            if i > j:
-                i, j = j, i
+            i = random.randint(1, n - 2)
+            j = random.randint(i + 1, n - 1)
 
             c_i = solution.big_tour[i]
             c_j = solution.big_tour[j]
-            if i == j or is_warehouse(c_i) or is_warehouse(c_j):
+            if is_warehouse(c_i) or is_warehouse(c_j):
                 continue
 
             return i, j
 
-    def calc_sol_value(self, solution, solution_value, i, j):
+    @staticmethod
+    def calc_sol_value(solution, solution_value, i, j):
         get_c = solution.problem.get_customer
         dist = solution.problem.dist
 
@@ -459,6 +462,40 @@ class SASolver(VRPSolver):
         self._stop = True
         return self.best_solution
 
+    def _get_moves(self, solution):
+        r = random.random()
+        moves_length = 1 #1 if r < 0.95 else 2
+        moves = []
+        n = len(solution.big_tour)
+        max_attempts = 4
+
+        while len(moves) < moves_length:
+            #print(r)
+            i = random.randint(1, n - 2)
+            j = random.randint(i + 1, n - 1)
+
+            c_i = solution.big_tour[i]
+            c_j = solution.big_tour[j]
+            if is_warehouse(c_i) or is_warehouse(c_j):
+                continue
+
+            # the selected moves can't intersect each other
+            good_move = True
+            for _i, _j in moves:
+                if _i <= i <= _j or _i <= j <= _j:
+                    good_move = False
+                    break
+
+            if good_move:
+                moves.append((i, j))
+            else:
+                max_attempts -= 1
+                if max_attempts <= 0:
+                    moves_length -= 1
+
+        return moves
+
+
     def _solve(self, problem: VRPProblem):
         k = 0
         last_improvement = 0
@@ -475,13 +512,24 @@ class SASolver(VRPSolver):
             solution.stats.final_value = best_value
 
         while not self._stop and (k - last_improvement < self.improvement_limit):
-            i, j = ls_solver.get_random_swap_indexes(solution)
-            inside_same_tour = solution.tour_ids[i] == solution.tour_ids[j]
+            #moves = [ls_solver.get_random_swap_indexes(solution)]
+            moves = self._get_moves(solution)
 
-            if not inside_same_tour and not ls_solver._check_demand(solution, i, j):
+            new_capacities = solution.capacities.copy()
+            for i, j in moves:
+                inside_same_tour = solution.tour_ids[i] == solution.tour_ids[j]
+                if inside_same_tour:  # automatically feasible
+                    continue
+                ls_solver.predict_capacities(solution, new_capacities, i, j)
+
+            # unfeasible by demand
+            if not all(c >= 0 for c in new_capacities):
                 continue
 
-            new_value = ls_solver.calc_sol_value(solution, solution_value, i, j)
+            new_value = solution_value
+            for i, j in moves:
+                new_value = ls_solver.calc_sol_value(solution, new_value, i, j)
+
             prob = min(1 if round(solution_value - new_value, 1) > 0.0 else math.exp(-(new_value - solution_value) / t), 1)
 
             if prob >= random.random():
@@ -491,7 +539,9 @@ class SASolver(VRPSolver):
 
                 # accept move
                 solution_value = new_value
-                ls_solver.perform_2opt(solution, i, j, same_tour=inside_same_tour)
+                for i, j in moves:
+                    inside_same_tour = solution.tour_ids[i] == solution.tour_ids[j]
+                    ls_solver.perform_2opt(solution, i, j, same_tour=inside_same_tour)
 
                 if round(best_value - solution_value, 1) > 0.0:
                     self.best_solution = solution.copy()
@@ -500,17 +550,7 @@ class SASolver(VRPSolver):
                     if self.debug:
                         solution.stats.final_value = best_value
 
-            # interesting, like re-heats
-            #step = k - last_improvement
-            #max_steps = self.improvement_limit / 10
-            #t = self.t_max * math.exp(self.t_factor * step / max_steps)
-
-            #step = k
-            #max_steps = 100000
-            #t = max(t * math.exp(self.t_factor * (1 - self.alpha)), self.t_min)
-
             t = max(t * self.alpha, self.t_min)
-
             k += 1
 
             if self.debug:
